@@ -1,7 +1,21 @@
-from kivy.app import App
-from kivy.core.window import Window
-from kivy.properties import BooleanProperty, StringProperty
-from kivy.uix.screenmanager import NoTransition, Screen, SlideTransition
+from datetime import datetime, timedelta
+
+from kivy.config import Config
+
+# Without this, right-clicking on a laptop leaves red "fake finger" dots for multitouch testing.
+Config.set("input", "mouse", "mouse,multitouch_on_demand")
+
+from kivy.app import App  # noqa: E402
+from kivy.clock import Clock  # noqa: E402
+from kivy.core.window import Window  # noqa: E402
+from kivy.properties import BooleanProperty, StringProperty  # noqa: E402
+from kivy.uix.screenmanager import NoTransition, Screen, SlideTransition  # noqa: E402
+
+import config  # noqa: E402
+import geo  # noqa: E402
+import navmap  # noqa: E402,F401  (registers NavMap so headunit.kv can use it)
+from demo_drive import DemoDrive  # noqa: E402
+from navigation import OFF_ROUTE_METERS, Navigator  # noqa: E402
 
 Window.size = (800, 480)
 Window.clearcolor = (0.06, 0.07, 0.09, 1)  # near-black background, easy on the eyes at night
@@ -12,6 +26,8 @@ FAKE_PLAYLIST = [
     ("Low Tide", "Coastal Radio"),
     ("Engine Hum", "Basement Tapes"),
 ]
+
+NO_ROUTE_TEXT = "Hold the map to choose a destination"
 
 
 # The looks of these screens live in headunit.kv. Python only needs the class names.
@@ -37,15 +53,27 @@ class HeadUnitApp(App):
     track_title = StringProperty(FAKE_PLAYLIST[0][0])
     track_artist = StringProperty(FAKE_PLAYLIST[0][1])
     is_playing = BooleanProperty(True)
-    next_turn = StringProperty("In 0.3 mi, turn right onto Main St")
-    eta = StringProperty("Arrive 6:42 PM  ·  12 min  ·  5.1 mi")
+    next_turn = StringProperty(NO_ROUTE_TEXT)
+    eta = StringProperty("No route")
+    has_route = BooleanProperty(False)
     phone_status = StringProperty("Phone connected")
 
     def on_start(self):
         self.track_index = 0
         self.screen_before_reverse = "home"
         self.was_playing_before_call = False
-        # Stand-in for the reverse-light wire: the R key flips reverse on and off.
+
+        self.navigator = Navigator()
+        self.route = None
+        self.destination = None
+        self.rerouting = False
+        self.demo = None
+        self.map = self.root.get_screen("home").ids.navmap
+        self.car_position = config.DEFAULT_POSITION
+        self.map.set_car(*self.car_position, 0)
+
+        # Keyboard stand-ins while testing on the laptop:
+        #   R = reverse-light wire on/off, D = start a demo drive along the current route.
         Window.bind(on_key_down=self.on_key_down)
 
     # ---- Screens ----
@@ -69,6 +97,78 @@ class HeadUnitApp(App):
                 self.reverse_off()
             else:
                 self.reverse_on()
+        elif codepoint == "d":
+            self.start_demo_drive()
+
+    # ---- Navigation ----
+
+    def navigate_to(self, lat, lon):
+        self.destination = (lat, lon)
+        self.next_turn = "Finding route..."
+        self.plan_route(show_overview=True)
+
+    def plan_route(self, show_overview=False):
+        def done(route, error):
+            # Valhalla finishes on a background thread; widgets may only be changed on the main
+            # thread, so hand the result over with the Clock.
+            Clock.schedule_once(lambda dt: self.on_route_ready(route, error, show_overview))
+        self.navigator.plan(self.car_position, self.destination, done)
+
+    def on_route_ready(self, route, error, show_overview):
+        self.rerouting = False
+        if error:
+            print("Routing failed:", error)
+            self.next_turn = "No route found. Hold the map to try another spot"
+            return
+        self.route = route
+        self.has_route = True
+        self.map.set_route(route.world)
+        if show_overview:
+            self.map.show_overview(route.world)
+        self.update_guidance()
+
+    def cancel_route(self):
+        self.route = self.destination = None
+        self.has_route = False
+        if self.demo:
+            self.demo.stop()
+        self.map.set_route([])
+        self.next_turn = NO_ROUTE_TEXT
+        self.eta = "No route"
+
+    def start_demo_drive(self):
+        if self.route is None:
+            return
+        if self.demo:
+            self.demo.stop()
+        self.route.last_index = 0
+        self.demo = DemoDrive(self.route, self.on_position, config.DEMO_SPEED)
+        self.map.recenter()
+
+    def on_position(self, lat, lon, heading):
+        """Called with every new position: from the demo drive now, from the GPS later."""
+        self.car_position = (lat, lon)
+        self.map.set_car(lat, lon, heading)
+        self.update_guidance()
+
+    def update_guidance(self):
+        if self.route is None:
+            return
+        progress = self.route.progress(*self.car_position)
+        if progress.arrived:
+            self.cancel_route()
+            self.next_turn = "You have arrived"
+            return
+        if progress.off_route > OFF_ROUTE_METERS and not self.rerouting:
+            self.rerouting = True
+            self.next_turn = "Rerouting..."
+            self.plan_route()
+            return
+        self.next_turn = f"{geo.format_distance(progress.to_maneuver)}  ·  {progress.instruction}"
+        arrival = (datetime.now() + timedelta(seconds=progress.time_left)).strftime("%I:%M %p").lstrip("0")
+        minutes = max(1, round(progress.time_left / 60))
+        self.eta = (f"Arrive {arrival}  ·  {minutes} min  ·  "
+                    f"{progress.remaining / geo.METERS_PER_MILE:.1f} mi")
 
     # ---- Music (fake for now) ----
 

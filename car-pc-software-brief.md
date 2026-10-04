@@ -33,7 +33,7 @@ Normal driving (nav + now-playing + phone tiles) → Reverse camera (automatic) 
 Kivy UI, librespot (or similar), BlueZ + PipeWire for calls and audio, a small Python daemon for call-state/pause logic, GPIO via libgpiod/gpiozero for ignition + reverse, gpsd for GPS, OpenCV/V4L2 for camera capture, scrcpy for on-demand mirroring.
 
 ## Verify before building (stated in planning from memory, not confirmed)
-- **Offline nav app on Linux**: I suggested OsmAnd's "Linux build", but OsmAnd is mainly Android/iOS. Check what's actually viable on Pi OS (e.g., Organic Maps, Navit, or a custom Kivy map with local routing like OSRM/GraphHopper) before committing.
+- ~~**Offline nav app on Linux**~~ **Decided (Oct 2026):** custom Kivy map (`navmap.py`, roads drawn from OpenStreetMap data) + Valhalla routing via the `pyvalhalla` pip package. Organic Maps runs on Pi (flatpak) but only as a separate desktop app, not inside our UI; Kivy's MapView needs raster tiles that can't be bulk-downloaded legally. pyvalhalla wheels need **Python 3.12+**, so the Pi needs a Trixie-based Pi OS (Python 3.13), not Bookworm (3.11).
 - **librespot metadata**: librespot itself may not expose MPRIS; spotifyd or another Connect client might be the better fit for track info. Spotify Connect needs Premium.
 - **Call info on Linux**: HFP caller ID/call state on current Pi OS goes through PipeWire/WirePlumber or oFono, not a `org.bluez.Call` interface as I described. Confirm the correct D-Bus path and how the Pi acts as the hands-free device.
 - **Audio hardware gaps**: Pi 5 has **no 3.5mm audio jack**, so the aux-out to the car stereo needs a USB audio adapter. Calls also need a **microphone** (USB mic or an adapter with mic input). Neither is on the parts list yet.

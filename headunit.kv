@@ -82,12 +82,30 @@ ScreenManager:
                     font_size: 22
                     bold: True
 
-            # Map placeholder (the real map comes later)
-            Card:
-                Label:
-                    text: "Map goes here"
-                    color: MUTED
-                    font_size: 24
+            # Map, with buttons floating over it
+            FloatLayout:
+                NavMap:
+                    id: navmap
+                    pos_hint: {"x": 0, "y": 0}
+                    on_destination: app.navigate_to(args[1], args[2])
+                BigButton:
+                    text: "Re-center"
+                    font_size: 18
+                    size_hint: None, None
+                    size: 120, 44
+                    pos_hint: {"right": 0.97, "y": 0.04}
+                    opacity: 0 if navmap.following else 0.9
+                    disabled: navmap.following
+                    on_press: navmap.recenter()
+                BigButton:
+                    text: "End route"
+                    font_size: 18
+                    size_hint: None, None
+                    size: 120, 44
+                    pos_hint: {"x": 0.03, "y": 0.04}
+                    opacity: 0.9 if app.has_route else 0
+                    disabled: not app.has_route
+                    on_press: app.cancel_route()
 
             # ETA bar
             Card:
