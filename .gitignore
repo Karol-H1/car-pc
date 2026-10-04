@@ -1,0 +1,12 @@
+# Python's compiled cache files, regenerated automatically
+__pycache__/
+*.pyc
+
+# Virtual environments (ours lives outside this folder, but just in case)
+.venv/
+venv/
+
+# Dashcam recordings and other large media
+recordings/
+*.mp4
+*.avi
