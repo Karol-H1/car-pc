@@ -1,0 +1,213 @@
+#:kivy 2.3
+
+# Colors used throughout, defined once so the theme is easy to change.
+#:set CARD (0.13, 0.14, 0.17, 1)
+#:set BUTTON (0.22, 0.24, 0.29, 1)
+#:set ACCENT (0.18, 0.5, 0.95, 1)
+#:set MUTED (0.62, 0.65, 0.7, 1)
+#:set DANGER (0.85, 0.25, 0.25, 1)
+#:set GOOD (0.2, 0.7, 0.35, 1)
+
+
+# ---------- Reusable building blocks ----------
+
+# A rounded dark panel. Anything placed inside it stacks top to bottom.
+<Card@BoxLayout>:
+    orientation: "vertical"
+    padding: 14
+    spacing: 6
+    canvas.before:
+        Color:
+            rgba: CARD
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [14]
+
+# A left-aligned label that cuts long text off with "..." instead of overflowing.
+<CardLabel@Label>:
+    text_size: self.size
+    halign: "left"
+    valign: "middle"
+    shorten: True
+    shorten_from: "right"
+
+# A flat, big, finger-friendly button.
+<BigButton@Button>:
+    font_size: 22
+    background_normal: ""
+    background_color: BUTTON
+
+
+# ---------- The app's root: one ScreenManager holding every screen ----------
+
+ScreenManager:
+    HomeScreen:
+        name: "home"
+    DashcamScreen:
+        name: "dashcam"
+    CallScreen:
+        name: "call"
+    ReverseScreen:
+        name: "reverse"
+
+
+# ---------- Home: navigation on the left, music and phone on the right ----------
+
+<HomeScreen>:
+    BoxLayout:
+        padding: 10
+        spacing: 10
+
+        # Left side: navigation
+        BoxLayout:
+            orientation: "vertical"
+            size_hint_x: 0.6
+            spacing: 10
+
+            # Turn banner
+            BoxLayout:
+                size_hint_y: None
+                height: 70
+                padding: 14, 0
+                canvas.before:
+                    Color:
+                        rgba: ACCENT
+                    RoundedRectangle:
+                        pos: self.pos
+                        size: self.size
+                        radius: [14]
+                CardLabel:
+                    text: app.next_turn
+                    font_size: 22
+                    bold: True
+
+            # Map placeholder (the real map comes later)
+            Card:
+                Label:
+                    text: "Map goes here"
+                    color: MUTED
+                    font_size: 24
+
+            # ETA bar
+            Card:
+                size_hint_y: None
+                height: 50
+                padding: 14, 0
+                CardLabel:
+                    text: app.eta
+                    font_size: 18
+                    color: MUTED
+
+        # Right side: music, phone, and shortcuts
+        BoxLayout:
+            orientation: "vertical"
+            spacing: 10
+
+            # Now playing
+            Card:
+                CardLabel:
+                    text: "NOW PLAYING"
+                    font_size: 13
+                    color: MUTED
+                    size_hint_y: 0.5
+                CardLabel:
+                    text: app.track_title
+                    font_size: 24
+                    bold: True
+                CardLabel:
+                    text: app.track_artist
+                    font_size: 18
+                    color: MUTED
+                BoxLayout:
+                    spacing: 8
+                    size_hint_y: 1.4
+                    BigButton:
+                        text: "Prev"
+                        on_press: app.previous_track()
+                    BigButton:
+                        text: "Pause" if app.is_playing else "Play"
+                        background_color: ACCENT
+                        on_press: app.toggle_play()
+                    BigButton:
+                        text: "Next"
+                        on_press: app.next_track()
+
+            # Phone
+            Card:
+                size_hint_y: 0.6
+                CardLabel:
+                    text: "PHONE"
+                    font_size: 13
+                    color: MUTED
+                    size_hint_y: 0.6
+                CardLabel:
+                    text: app.phone_status
+                    font_size: 20
+                BigButton:
+                    text: "Test call"
+                    on_press: app.start_fake_call()
+
+            # Shortcuts
+            BoxLayout:
+                size_hint_y: None
+                height: 60
+                spacing: 10
+                BigButton:
+                    text: "Dashcam"
+                    on_press: app.switch_to("dashcam")
+                BigButton:
+                    text: "Live traffic"
+                    on_press: print("Phone mirroring comes later")
+
+
+# ---------- The other screens (simple placeholders for now) ----------
+
+<DashcamScreen>:
+    BoxLayout:
+        orientation: "vertical"
+        padding: 10
+        spacing: 10
+        Card:
+            Label:
+                text: "Dashcam feed goes here"
+                color: MUTED
+                font_size: 24
+        BigButton:
+            text: "Back"
+            size_hint_y: None
+            height: 70
+            on_press: app.switch_to("home")
+
+<CallScreen>:
+    BoxLayout:
+        orientation: "vertical"
+        padding: 30
+        spacing: 20
+        Label:
+            text: app.phone_status
+            font_size: 40
+            bold: True
+        Label:
+            text: "Music paused during the call"
+            font_size: 18
+            color: MUTED
+        BoxLayout:
+            size_hint_y: None
+            height: 90
+            spacing: 20
+            BigButton:
+                text: "Answer"
+                background_color: GOOD
+                on_press: app.phone_status = "On call: Mom"
+            BigButton:
+                text: "Hang up"
+                background_color: DANGER
+                on_press: app.end_call()
+
+<ReverseScreen>:
+    Label:
+        text: "REVERSE CAMERA"
+        font_size: 48
+        bold: True
+        color: DANGER
