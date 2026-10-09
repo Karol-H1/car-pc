@@ -15,8 +15,9 @@ else:
 from kivy.app import App  # noqa: E402
 from kivy.clock import Clock  # noqa: E402
 from kivy.core.window import Window  # noqa: E402
-from kivy.properties import BooleanProperty, StringProperty  # noqa: E402
+from kivy.properties import BooleanProperty, NumericProperty, StringProperty  # noqa: E402
 from kivy.uix.screenmanager import NoTransition, Screen, SlideTransition  # noqa: E402
+from kivy.uix.slider import Slider  # noqa: E402
 
 import geo  # noqa: E402
 import navmap  # noqa: E402,F401  (registers NavMap so headunit.kv can use it)
@@ -50,6 +51,30 @@ class ReverseScreen(Screen):
     pass
 
 
+class SeekBar(Slider):
+    """A Slider that playback doesn't move while a finger is on it, and that reports where the
+    finger let go (on_seek) instead of every step along the way."""
+    dragging = BooleanProperty(False)
+
+    __events__ = ("on_seek",)
+
+    def on_touch_down(self, touch):
+        if not self.disabled and self.collide_point(*touch.pos):
+            self.dragging = True
+        return super().on_touch_down(touch)
+
+    def on_touch_up(self, touch):
+        if self.dragging and touch.grab_current is self:
+            self.dragging = False
+            super().on_touch_up(touch)
+            self.dispatch("on_seek", self.value)
+            return True
+        return super().on_touch_up(touch)
+
+    def on_seek(self, value):
+        pass
+
+
 class HeadUnitApp(App):
     # Kivy properties: when one of these changes, every label in the .kv file that
     # uses it redraws automatically.
@@ -57,6 +82,8 @@ class HeadUnitApp(App):
     track_artist = StringProperty("Connecting...")
     album_cover = StringProperty("")
     is_playing = BooleanProperty(False)
+    track_position = NumericProperty(0)  # milliseconds
+    track_duration = NumericProperty(0)
     next_turn = StringProperty(NO_ROUTE_TEXT)
     eta = StringProperty("No route")
     has_route = BooleanProperty(False)
@@ -76,6 +103,9 @@ class HeadUnitApp(App):
         self.map.set_car(*self.car_position, 0)
 
         self.spotify = Spotify(lambda state: Clock.schedule_once(lambda dt: self.show_spotify(state)))
+        self.spotify_state = None
+        self.seek_bar = self.root.get_screen("home").ids.seek_bar
+        Clock.schedule_interval(self.tick_progress, 0.5)
 
         # Keyboard stand-ins while testing on the laptop:
         #   R = reverse-light wire on/off, D = start a demo drive along the current route.
@@ -186,6 +216,22 @@ class HeadUnitApp(App):
             self.track_title, self.track_artist = state.title, state.artist
         self.album_cover = state.cover_url if state.active else ""
         self.is_playing = state.playing
+        self.spotify_state = state
+        self.track_duration = state.duration if state.active else 0
+        self.tick_progress()
+
+    def tick_progress(self, *args):
+        if self.spotify_state and not self.seek_bar.dragging:
+            self.track_position = self.spotify_state.position_now() if self.track_duration else 0
+
+    @staticmethod
+    def format_time(ms):
+        seconds = int(ms // 1000)
+        return f"{seconds // 60}:{seconds % 60:02d}"
+
+    def seek_to(self, position_ms):
+        self.track_position = position_ms
+        self.spotify.seek(position_ms)
 
     def toggle_play(self):
         self.spotify.play_pause()

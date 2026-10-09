@@ -10,6 +10,7 @@ import threading
 
 import numpy as np
 from kivy.clock import Clock
+from kivy.core.text import Label as CoreLabel
 from kivy.graphics import (Color, InstructionGroup, Mesh, PopMatrix, PushMatrix, Rectangle, Rotate,
                            Scale, Translate, Triangle)
 from kivy.properties import BooleanProperty, NumericProperty
@@ -41,6 +42,14 @@ DRIVING_MPP = 3  # zoom used while following the car
 SEGMENTS_PER_MESH = 16000
 QUAD_INDICES = (np.array([0, 1, 2, 2, 1, 3], np.uint16)
                 + 4 * np.arange(SEGMENTS_PER_MESH, dtype=np.uint16)[:, None]).ravel()
+# Street names
+LABEL_FONT_SIZE = 13
+LABEL_COLOR = (0.86, 0.88, 0.92, 1)
+LABEL_MAX_MPP = 8        # only label streets when zoomed in this close
+LABEL_MAX_CLASS = 5      # don't label service roads (driveways, parking lots)
+MAX_LABELS = 60
+LABEL_MAX_BEND = 30      # degrees a road may curve under one name
+SAME_NAME_SPACING = 300  # pixels between repeats of one street's name
 LONG_PRESS_SECONDS = 0.6
 TAP_SLOP = 12    # pixels a finger can wander before a press counts as a drag
 
@@ -78,6 +87,96 @@ def stroke_meshes(coords, starts, half_width):
             for i in range(0, len(vertices), SEGMENTS_PER_MESH)]
 
 
+def text_width_guess(name):
+    return len(name) * LABEL_FONT_SIZE * 0.55 + 6
+
+
+def straightest_stretch(points):
+    """Find the longest run of a road that stays within LABEL_MAX_BEND degrees of straight.
+
+    Returns (length, middle point, angle) for that run, with the middle measured along the road."""
+    steps = np.diff(points, axis=0)
+    lengths = np.hypot(steps[:, 0], steps[:, 1])
+    angles = np.degrees(np.arctan2(steps[:, 1], steps[:, 0]))
+    best_length, best_first, best_last = 0.0, 0, 0
+    for first in range(len(steps)):
+        total = 0.0
+        for last in range(first, len(steps)):
+            if abs((angles[last] - angles[first] + 180) % 360 - 180) > LABEL_MAX_BEND:
+                break
+            total += lengths[last]
+            if total > best_length:
+                best_length, best_first, best_last = total, first, last
+
+    # Walk halfway along the run to find its middle.
+    remaining = best_length / 2
+    for i in range(best_first, best_last + 1):
+        if remaining <= lengths[i] or i == best_last:
+            t = 0.0 if lengths[i] == 0 else min(1.0, remaining / lengths[i])
+            middle = points[i] + t * steps[i]
+            break
+        remaining -= lengths[i]
+    start, end = points[best_first], points[best_last + 1]
+    angle = math.degrees(math.atan2(end[1] - start[1], end[0] - start[0]))
+    return best_length, middle, angle
+
+
+def join_pieces(pieces):
+    """OpenStreetMap splits a street into many pieces (often one per block). Join the pieces that
+    share end points back into longer lines, so a name has room to fit."""
+    pieces = list(pieces)
+    joined = []
+    while pieces:
+        line = pieces.pop()
+        grew = True
+        while grew:
+            grew = False
+            for k, other in enumerate(pieces):
+                if np.array_equal(line[-1], other[0]):
+                    line = np.vstack([line, other[1:]])
+                elif np.array_equal(line[-1], other[-1]):
+                    line = np.vstack([line, other[-2::-1]])
+                elif np.array_equal(line[0], other[-1]):
+                    line = np.vstack([other[:-1], line])
+                elif np.array_equal(line[0], other[0]):
+                    line = np.vstack([other[:0:-1], line])
+                else:
+                    continue
+                pieces.pop(k)
+                grew = True
+                break
+        joined.append(line)
+    return joined
+
+
+def pick_labels(named_roads):
+    """Choose where to write street names. named_roads is a list of (class, name, points) with
+    points in drawing units (pixels, 0,0 = middle of the view). Returns [(name, x, y, angle)],
+    nearest-first and spread out so labels don't pile up."""
+    streets = {}
+    for road_class, name, points in named_roads:
+        streets.setdefault((road_class, name), []).append(points)
+
+    candidates = []
+    for (road_class, name), pieces in streets.items():
+        width = text_width_guess(name)
+        for points in join_pieces(pieces):
+            length, (x, y), angle = straightest_stretch(points)
+            if length >= width * 0.9:
+                candidates.append((math.hypot(x, y), road_class, name, float(x), float(y), angle, width))
+
+    chosen = []
+    for _, _, name, x, y, angle, width in sorted(candidates):  # nearest first
+        if len(chosen) == MAX_LABELS:
+            break
+        crowded = any(math.hypot(x - cx, y - cy) < (width + other_width) * 0.45 or
+                      (name == other_name and math.hypot(x - cx, y - cy) < SAME_NAME_SPACING)
+                      for other_name, cx, cy, _, other_width in chosen)
+        if not crowded:
+            chosen.append((name, x, y, angle, width))
+    return [(name, x, y, angle) for name, x, y, angle, _ in chosen]
+
+
 def rotate(x, y, degrees):
     """Rotate a vector counterclockwise."""
     a = math.radians(degrees)
@@ -108,6 +207,9 @@ class NavMap(StencilView):
         self.drawn_mpp = self.mpp
         self.drawn_box = None
 
+        self.label_parts = []      # (angle along the road, its Rotate, its Scale) per street name
+        self.label_textures = {}   # street name -> rendered text, reused across reloads
+
         self.touches = {}
         self.press_start = None
         self.long_press = None
@@ -123,6 +225,7 @@ class NavMap(StencilView):
             self.move_to_view = Translate()
             self.roads = InstructionGroup()
             self.route_lines = InstructionGroup()
+            self.labels = InstructionGroup()
             PopMatrix()
             self.car_marker = InstructionGroup()
 
@@ -199,6 +302,11 @@ class NavMap(StencilView):
         self.turn.angle = self.rotation
         k = self.drawn_mpp / self.mpp
         self.zoom.xyz = (k, k, 1)
+        for angle, turn, size in self.label_parts:
+            # Keep names readable: flip any that would be upside down, and undo the zoom stretch.
+            upright = math.cos(math.radians(angle + self.rotation)) >= 0
+            turn.angle = angle if upright else angle + 180
+            size.xyz = (1 / k, 1 / k, 1)
         self.move_to_view.xy = ((self.origin[0] - self.view_center[0]) / self.drawn_mpp,
                                 (self.origin[1] - self.view_center[1]) / self.drawn_mpp)
         self.draw_car()
@@ -232,15 +340,20 @@ class NavMap(StencilView):
     def load_roads(self, request):
         """Background thread: query map.sqlite and turn the roads into triangles."""
         (cx, cy), mpp, r = request
-        layers = []
+        layers, labels = [], []
         if self.db is not None:
             rows = self.db.execute(
-                "SELECT r.cls, r.coords FROM roads_index i JOIN roads r ON r.id = i.id "
+                "SELECT r.cls, r.coords, r.name FROM roads_index i JOIN roads r ON r.id = i.id "
                 "WHERE i.maxx >= ? AND i.minx <= ? AND i.maxy >= ? AND i.miny <= ? AND i.mincls <= ?",
                 (cx - r, cx + r, cy - r, cy + r, smallest_class_shown(mpp))).fetchall()
             by_class = {}
-            for road_class, blob in rows:
+            named_roads = []
+            for road_class, blob, name in rows:
                 by_class.setdefault(road_class, []).append(blob)
+                if name and mpp < LABEL_MAX_MPP and road_class <= LABEL_MAX_CLASS:
+                    points = (np.frombuffer(blob, np.float64).reshape(-1, 2) - (cx, cy)) / mpp
+                    named_roads.append((road_class, name, points))
+            labels = pick_labels(named_roads)
             width_scale = 1.0 if mpp < 8 else 0.75 if mpp < 40 else 0.5
             for road_class in sorted(by_class, reverse=True):  # small roads first, big roads on top
                 blobs = by_class[road_class]
@@ -249,9 +362,9 @@ class NavMap(StencilView):
                 starts = np.concatenate(([0], np.cumsum(lengths)[:-1]))
                 color, width = ROAD_STYLES[road_class]
                 layers.append((color, stroke_meshes(coords, starts, width * width_scale)))
-        Clock.schedule_once(lambda dt: self.show_roads(request, layers))
+        Clock.schedule_once(lambda dt: self.show_roads(request, layers, labels))
 
-    def show_roads(self, request, layers):
+    def show_roads(self, request, layers, labels):
         """Main thread: swap the freshly loaded roads in."""
         (cx, cy), mpp, r = request
         self.origin, self.drawn_mpp = (cx, cy), mpp
@@ -261,6 +374,7 @@ class NavMap(StencilView):
             self.roads.add(Color(*color))
             for vertices, indices in chunks:
                 self.roads.add(Mesh(vertices=vertices, indices=indices, mode="triangles"))
+        self.draw_labels(labels)
         self.loading = False
         self.draw_route()
         self.update_view()
@@ -274,6 +388,26 @@ class NavMap(StencilView):
             self.route_lines.add(Color(*color))
             for vertices, indices in stroke_meshes(coords, [0], half_width):
                 self.route_lines.add(Mesh(vertices=vertices, indices=indices, mode="triangles"))
+
+    def draw_labels(self, labels):
+        self.labels.clear()
+        self.label_parts = []
+        if len(self.label_textures) > 500:
+            self.label_textures.clear()
+        for name, x, y, angle in labels:
+            texture = self.label_textures.get(name)
+            if texture is None:
+                text = CoreLabel(text=name, font_size=LABEL_FONT_SIZE, color=LABEL_COLOR,
+                                 outline_width=2, outline_color=BACKGROUND[:3])
+                text.refresh()
+                texture = self.label_textures[name] = text.texture
+            turn, size = Rotate(angle=angle, origin=(0, 0)), Scale(1, 1, 1)
+            w, h = texture.size
+            for instruction in (PushMatrix(), Translate(x, y), turn, size, Color(1, 1, 1, 1),
+                                Rectangle(texture=texture, pos=(-w / 2, -h / 2), size=(w, h)),
+                                PopMatrix()):
+                self.labels.add(instruction)
+            self.label_parts.append((angle, turn, size))
 
     def draw_car(self):
         self.car_marker.clear()

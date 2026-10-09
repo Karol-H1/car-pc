@@ -148,6 +148,34 @@ ScreenManager:
                             text: app.track_artist
                             font_size: 18
                             color: MUTED
+
+                # Track progress: drag or tap to jump within the song
+                BoxLayout:
+                    spacing: 6
+                    opacity: 1 if app.track_duration else 0.35
+                    Label:
+                        text: app.format_time(app.track_position)
+                        font_size: 13
+                        color: MUTED
+                        size_hint_x: None
+                        width: 40
+                    SeekBar:
+                        id: seek_bar
+                        min: 0
+                        max: max(1, app.track_duration)
+                        value: app.track_position
+                        disabled: not app.track_duration
+                        cursor_size: 22, 22
+                        value_track: True
+                        value_track_color: ACCENT
+                        value_track_width: 3
+                        on_seek: app.seek_to(args[1])
+                    Label:
+                        text: app.format_time(app.track_duration)
+                        font_size: 13
+                        color: MUTED
+                        size_hint_x: None
+                        width: 40
                 BoxLayout:
                     spacing: 8
                     size_hint_y: 1.4

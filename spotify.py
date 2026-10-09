@@ -24,6 +24,17 @@ class SpotifyState:
     title: str = ""
     artist: str = ""
     cover_url: str = ""
+    duration: int = 0        # milliseconds
+    # go-librespot only reports the position when something happens (new track, seek, pause), so
+    # remember the last report and when it came; position_now() works out the rest.
+    position: int = 0        # milliseconds
+    position_at: float = 0.0  # time.monotonic() of that report
+
+    def position_now(self):
+        if not self.playing:
+            return self.position
+        elapsed = (time.monotonic() - self.position_at) * 1000
+        return min(self.duration, self.position + elapsed)
 
 
 class Spotify:
@@ -50,12 +61,18 @@ class Spotify:
     def previous(self):
         self.send("/player/prev")
 
-    def send(self, path):
-        threading.Thread(target=self.post, args=(path,), daemon=True).start()
+    def seek(self, position_ms):
+        self.send("/player/seek", {"position": int(position_ms)})
 
-    def post(self, path):
+    def send(self, path, body=None):
+        threading.Thread(target=self.post, args=(path, body), daemon=True).start()
+
+    def post(self, path, body=None):
+        data = json.dumps(body).encode() if body is not None else b""
+        request = urllib.request.Request(API + path, data=data, method="POST",
+                                         headers={"Content-Type": "application/json"})
         try:
-            urllib.request.urlopen(urllib.request.Request(API + path, data=b"", method="POST"), timeout=3)
+            urllib.request.urlopen(request, timeout=3)
         except OSError as error:
             print(f"Spotify: {path} failed: {error}")
 
@@ -92,19 +109,29 @@ class Spotify:
                     playing=not (status.get("paused") or status.get("stopped")),
                     title=track.get("name", ""),
                     artist=", ".join(track.get("artist_names") or []),
-                    cover_url=track.get("album_cover_url") or "")
+                    cover_url=track.get("album_cover_url") or "",
+                    duration=track.get("duration", 0), position=track.get("position", 0),
+                    position_at=time.monotonic())
 
     def handle(self, event):
         kind, data = event.get("type"), event.get("data") or {}
+        now = time.monotonic()
         if kind == "metadata":
             self.update(active=True, title=data.get("name", ""),
                         artist=", ".join(data.get("artist_names") or []),
-                        cover_url=data.get("album_cover_url") or "")
+                        cover_url=data.get("album_cover_url") or "",
+                        duration=data.get("duration", 0), position=data.get("position", 0),
+                        position_at=now)
+        elif kind == "seek":
+            self.update(position=data.get("position", 0), position_at=now)
         elif kind == "active":
             self.update(active=True)
         elif kind == "inactive":
             self.update(active=False, playing=False)
         elif kind == "playing":
-            self.update(playing=True)
+            if not self.state.playing:
+                # Carry on from wherever the position was frozen when playback paused.
+                self.update(playing=True, position_at=now)
         elif kind in ("paused", "not_playing", "stopped"):
-            self.update(playing=False)
+            if self.state.playing:
+                self.update(playing=False, position=int(self.state.position_now()), position_at=now)
