@@ -28,6 +28,9 @@ ROAD_CLASSES = {
     "service": 6,
 }
 
+# Named places, mapped to a rank (0 = most important). navmap.PLACE_STYLES uses the same numbers.
+PLACE_RANKS = {"city": 0, "town": 1, "village": 2, "suburb": 3, "neighbourhood": 4}
+
 BATCH_SIZE = 5000
 
 
@@ -64,6 +67,23 @@ class RoadCollector(osmium.SimpleHandler):
         self.rows = []
 
 
+class PlaceCollector(osmium.SimpleHandler):
+    """Cities, towns, villages and neighborhoods: their names are shown when zoomed out."""
+
+    def __init__(self):
+        super().__init__()
+        self.rows = []
+
+    def node(self, node):
+        rank = PLACE_RANKS.get(node.tags.get("place"))
+        name = node.tags.get("name")
+        if rank is None or not name:
+            return
+        digits = "".join(c for c in node.tags.get("population", "") if c.isdigit())
+        x, y = geo.to_world(node.location.lat, node.location.lon)
+        self.rows.append((name, rank, int(digits) if digits else 0, x, y))
+
+
 def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
@@ -82,12 +102,18 @@ def main():
     collector = RoadCollector(db)
     collector.apply_file(str(pbf), locations=True)
     collector.flush()
+
+    places = PlaceCollector()
+    places.apply_file(str(pbf), filters=[osmium.filter.KeyFilter("place")])
+    db.execute("CREATE TABLE places (name TEXT, rank INTEGER, population INTEGER, x REAL, y REAL)")
+    db.executemany("INSERT INTO places VALUES (?, ?, ?, ?, ?)", places.rows)
     db.commit()
     db.close()
 
     temp_path.replace(config.MAP_DB)
     size_mb = config.MAP_DB.stat().st_size / 1e6
-    print(f"Saved {collector.count} roads to {config.MAP_DB} ({size_mb:.0f} MB) in {time.time() - started:.0f}s")
+    print(f"Saved {collector.count} roads and {len(places.rows)} places to {config.MAP_DB} "
+          f"({size_mb:.0f} MB) in {time.time() - started:.0f}s")
 
 
 if __name__ == "__main__":

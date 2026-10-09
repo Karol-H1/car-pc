@@ -50,6 +50,17 @@ LABEL_MAX_CLASS = 5      # don't label service roads (driveways, parking lots)
 MAX_LABELS = 60
 LABEL_MAX_BEND = 30      # degrees a road may curve under one name
 SAME_NAME_SPACING = 300  # pixels between repeats of one street's name
+# Place names (rank numbers from tools/build_map_data.py): font size, bold, and the farthest zoom
+# (meters per pixel) each rank still shows at.
+PLACE_STYLES = [
+    (18, True, MAX_MPP),  # 0 city
+    (16, True, MAX_MPP),  # 1 town
+    (14, False, 100),     # 2 village
+    (14, False, 30),      # 3 suburb (large neighborhood)
+    (13, False, 20),      # 4 neighborhood
+]
+PLACE_COLOR = (0.95, 0.96, 0.98, 1)
+MAX_PLACE_LABELS = 80
 LONG_PRESS_SECONDS = 0.6
 TAP_SLOP = 12    # pixels a finger can wander before a press counts as a drag
 
@@ -177,6 +188,22 @@ def pick_labels(named_roads):
     return [(name, x, y, angle) for name, x, y, angle, _ in chosen]
 
 
+def pick_place_labels(places):
+    """places: list of (name, rank, population, x, y) in drawing units. Most important first, and
+    none overlapping. Returns [(name, x, y, rank)]."""
+    chosen = []
+    for name, rank, population, x, y in sorted(places, key=lambda p: (p[1], -p[2])):
+        if len(chosen) == MAX_PLACE_LABELS:
+            break
+        size = PLACE_STYLES[rank][0]
+        half_width, half_height = len(name) * size * 0.3 + 8, size * 0.8 + 6
+        # Boxes are compared as if the map weren't turned; close enough for spacing names out.
+        if all(abs(x - cx) > half_width + cw or abs(y - cy) > half_height + ch
+               for _, cx, cy, _, cw, ch in chosen):
+            chosen.append((name, x, y, rank, half_width, half_height))
+    return [(name, x, y, rank) for name, x, y, rank, _, _ in chosen]
+
+
 def rotate(x, y, degrees):
     """Rotate a vector counterclockwise."""
     a = math.radians(degrees)
@@ -194,6 +221,8 @@ class NavMap(StencilView):
         # Only the loader thread uses this connection, one load at a time.
         self.db = (sqlite3.connect(config.MAP_DB, check_same_thread=False)
                    if config.MAP_DB.exists() else None)
+        self.has_places = self.db is not None and self.db.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = 'places'").fetchone() is not None
         self.loading = False
         self.view_center = geo.to_world(*config.DEFAULT_POSITION)
         self.rotation = 0.0
@@ -207,8 +236,9 @@ class NavMap(StencilView):
         self.drawn_mpp = self.mpp
         self.drawn_box = None
 
-        self.label_parts = []      # (angle along the road, its Rotate, its Scale) per street name
-        self.label_textures = {}   # street name -> rendered text, reused across reloads
+        # (angle along the road, or None for a place name that stays level; its Rotate; its Scale)
+        self.label_parts = []
+        self.label_textures = {}   # (name, style) -> rendered text, reused across reloads
 
         self.touches = {}
         self.press_start = None
@@ -303,9 +333,13 @@ class NavMap(StencilView):
         k = self.drawn_mpp / self.mpp
         self.zoom.xyz = (k, k, 1)
         for angle, turn, size in self.label_parts:
-            # Keep names readable: flip any that would be upside down, and undo the zoom stretch.
-            upright = math.cos(math.radians(angle + self.rotation)) >= 0
-            turn.angle = angle if upright else angle + 180
+            # Keep names readable: street names flip if they'd be upside down, place names stay
+            # level however the map turns, and none of them stretch while zooming.
+            if angle is None:
+                turn.angle = -self.rotation
+            else:
+                upright = math.cos(math.radians(angle + self.rotation)) >= 0
+                turn.angle = angle if upright else angle + 180
             size.xyz = (1 / k, 1 / k, 1)
         self.move_to_view.xy = ((self.origin[0] - self.view_center[0]) / self.drawn_mpp,
                                 (self.origin[1] - self.view_center[1]) / self.drawn_mpp)
@@ -353,7 +387,16 @@ class NavMap(StencilView):
                 if name and mpp < LABEL_MAX_MPP and road_class <= LABEL_MAX_CLASS:
                     points = (np.frombuffer(blob, np.float64).reshape(-1, 2) - (cx, cy)) / mpp
                     named_roads.append((road_class, name, points))
-            labels = pick_labels(named_roads)
+            labels = [(name, x, y, angle, "street") for name, x, y, angle in pick_labels(named_roads)]
+            if self.has_places and mpp >= LABEL_MAX_MPP:
+                ranks = [rank for rank, (_, _, max_mpp) in enumerate(PLACE_STYLES) if mpp < max_mpp]
+                places = self.db.execute(
+                    f"SELECT name, rank, population, x, y FROM places WHERE x BETWEEN ? AND ? "
+                    f"AND y BETWEEN ? AND ? AND rank IN ({','.join('?' * len(ranks))})",
+                    (cx - r, cx + r, cy - r, cy + r, *ranks)).fetchall()
+                places = [(name, rank, population, (x - cx) / mpp, (y - cy) / mpp)
+                          for name, rank, population, x, y in places]
+                labels += [(name, x, y, None, rank) for name, x, y, rank in pick_place_labels(places)]
             width_scale = 1.0 if mpp < 8 else 0.75 if mpp < 40 else 0.5
             for road_class in sorted(by_class, reverse=True):  # small roads first, big roads on top
                 blobs = by_class[road_class]
@@ -394,14 +437,18 @@ class NavMap(StencilView):
         self.label_parts = []
         if len(self.label_textures) > 500:
             self.label_textures.clear()
-        for name, x, y, angle in labels:
-            texture = self.label_textures.get(name)
+        for name, x, y, angle, style in labels:
+            texture = self.label_textures.get((name, style))
             if texture is None:
-                text = CoreLabel(text=name, font_size=LABEL_FONT_SIZE, color=LABEL_COLOR,
+                if style == "street":
+                    font_size, bold, color = LABEL_FONT_SIZE, False, LABEL_COLOR
+                else:
+                    (font_size, bold, _), color = PLACE_STYLES[style], PLACE_COLOR
+                text = CoreLabel(text=name, font_size=font_size, bold=bold, color=color,
                                  outline_width=2, outline_color=BACKGROUND[:3])
                 text.refresh()
-                texture = self.label_textures[name] = text.texture
-            turn, size = Rotate(angle=angle, origin=(0, 0)), Scale(1, 1, 1)
+                texture = self.label_textures[(name, style)] = text.texture
+            turn, size = Rotate(angle=angle or 0, origin=(0, 0)), Scale(1, 1, 1)
             w, h = texture.size
             for instruction in (PushMatrix(), Translate(x, y), turn, size, Color(1, 1, 1, 1),
                                 Rectangle(texture=texture, pos=(-w / 2, -h / 2), size=(w, h)),
