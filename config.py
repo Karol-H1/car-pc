@@ -8,6 +8,9 @@ DATA_DIR = Path(os.environ.get("CARPC_DATA", Path.home() / "carpc-data"))
 MAP_DB = DATA_DIR / "map.sqlite"
 ROUTING_TILES = DATA_DIR / "valhalla_tiles"
 
+MODEL_FILE = Path("/proc/device-tree/model")
+ON_PI = MODEL_FILE.exists() and "Raspberry Pi" in MODEL_FILE.read_text(errors="ignore")
+
 # Where the car is when there's no GPS (laptop testing): Boston, MA.
 DEFAULT_POSITION = (42.3601, -71.0589)
 

@@ -6,11 +6,12 @@ anchor on screen, a zoom level (meters per pixel) and a rotation.
 """
 import math
 import sqlite3
-from array import array
+import threading
 
+import numpy as np
 from kivy.clock import Clock
-from kivy.graphics import (Color, InstructionGroup, Line, PopMatrix, PushMatrix, Rectangle,
-                           Rotate, Scale, Translate, Triangle)
+from kivy.graphics import (Color, InstructionGroup, Mesh, PopMatrix, PushMatrix, Rectangle, Rotate,
+                           Scale, Translate, Triangle)
 from kivy.properties import BooleanProperty, NumericProperty
 from kivy.uix.stencilview import StencilView
 
@@ -22,7 +23,7 @@ ROUTE_COLOR = (0.18, 0.5, 0.95, 1)
 ROUTE_EDGE = (0.07, 0.22, 0.45, 1)
 CAR_COLOR = (0.18, 0.5, 0.95, 1)
 
-# Color and width (pixels) for each road class number from tools/build_map_data.py.
+# Color and half-width (pixels) for each road class number from tools/build_map_data.py.
 ROAD_STYLES = [
     ((0.86, 0.62, 0.30, 1), 6.0),  # 0 motorway
     ((0.78, 0.68, 0.42, 1), 5.0),  # 1 trunk
@@ -36,7 +37,10 @@ ROAD_STYLES = [
 MIN_MPP = 0.5    # closest zoom, meters per pixel
 MAX_MPP = 400    # farthest zoom
 DRIVING_MPP = 3  # zoom used while following the car
-MIN_SEGMENT = 2  # pixels; shorter line pieces get merged
+# Each line segment becomes 4 corners, and a Mesh can only number 65535 corners.
+SEGMENTS_PER_MESH = 16000
+QUAD_INDICES = (np.array([0, 1, 2, 2, 1, 3], np.uint16)
+                + 4 * np.arange(SEGMENTS_PER_MESH, dtype=np.uint16)[:, None]).ravel()
 LONG_PRESS_SECONDS = 0.6
 TAP_SLOP = 12    # pixels a finger can wander before a press counts as a drag
 
@@ -47,6 +51,31 @@ def smallest_class_shown(mpp):
         if mpp < limit:
             return road_class
     return 1
+
+
+def stroke_meshes(coords, starts, half_width):
+    """Turn many polylines into triangles, ready for a few Kivy Meshes.
+
+    coords is an (N, 2) array of every line's points back to back; starts holds the index where
+    each line begins. Drawing thousands of roads as one Mesh per color, instead of one Line each,
+    is what keeps the Pi's graphics chip fast. Returns a list of (vertices, indices) chunks.
+    """
+    keep = np.ones(len(coords) - 1, bool)
+    keep[np.asarray(starts, np.int64)[1:] - 1] = False  # no segment joining one road's end to the next road
+    a, b = coords[:-1][keep], coords[1:][keep]
+    direction = b - a
+    length = np.hypot(direction[:, 0], direction[:, 1])
+    nonzero = length > 1e-6
+    a, b, direction = a[nonzero], b[nonzero], direction[nonzero] / length[nonzero, None]
+    # Stretching each segment by half its width at both ends fills the gaps at bends.
+    along = direction * half_width
+    across = np.stack([-direction[:, 1], direction[:, 0]], axis=1) * half_width
+    a, b = a - along, b + along
+    vertices = np.zeros((len(a), 4, 4), np.float32)  # x, y and two unused texture coordinates
+    vertices[:, :, :2] = np.stack([a + across, a - across, b + across, b - across], axis=1)
+    return [(vertices[i:i + SEGMENTS_PER_MESH].ravel(),
+             QUAD_INDICES[:6 * len(vertices[i:i + SEGMENTS_PER_MESH])])
+            for i in range(0, len(vertices), SEGMENTS_PER_MESH)]
 
 
 def rotate(x, y, degrees):
@@ -63,7 +92,10 @@ class NavMap(StencilView):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.db = sqlite3.connect(config.MAP_DB) if config.MAP_DB.exists() else None
+        # Only the loader thread uses this connection, one load at a time.
+        self.db = (sqlite3.connect(config.MAP_DB, check_same_thread=False)
+                   if config.MAP_DB.exists() else None)
+        self.loading = False
         self.view_center = geo.to_world(*config.DEFAULT_POSITION)
         self.rotation = 0.0
         self.car = None          # (world x, world y)
@@ -188,60 +220,60 @@ class NavMap(StencilView):
         return cx - r < minx or cx + r > maxx or cy - r < miny or cy + r > maxy
 
     def reload(self, *args):
-        """Fetch the roads around the view from map.sqlite and redraw them."""
+        """Start fetching the roads around the view. The slow part runs on a background thread;
+        show_roads() puts the result on screen."""
+        if self.loading:
+            return  # show_roads() checks again when the current load finishes
+        self.loading = True
         r = self.view_radius() * 1.5  # extra margin so small pans don't need a reload
-        cx, cy = self.view_center
-        self.origin = self.view_center
-        self.drawn_mpp = self.mpp
-        self.drawn_box = (cx - r, cy - r, cx + r, cy + r)
+        request = (self.view_center, self.mpp, r)
+        threading.Thread(target=self.load_roads, args=(request,), daemon=True).start()
 
-        self.roads.clear()
+    def load_roads(self, request):
+        """Background thread: query map.sqlite and turn the roads into triangles."""
+        (cx, cy), mpp, r = request
+        layers = []
         if self.db is not None:
             rows = self.db.execute(
                 "SELECT r.cls, r.coords FROM roads_index i JOIN roads r ON r.id = i.id "
-                "WHERE i.maxx >= ? AND i.minx <= ? AND i.maxy >= ? AND i.miny <= ? AND i.mincls <= ? "
-                "ORDER BY r.cls DESC",  # small roads first, so big roads are drawn on top
-                (cx - r, cx + r, cy - r, cy + r, smallest_class_shown(self.mpp))).fetchall()
-            width_scale = 1.0 if self.mpp < 8 else 0.75 if self.mpp < 40 else 0.5
-            current_class = None
+                "WHERE i.maxx >= ? AND i.minx <= ? AND i.maxy >= ? AND i.miny <= ? AND i.mincls <= ?",
+                (cx - r, cx + r, cy - r, cy + r, smallest_class_shown(mpp))).fetchall()
+            by_class = {}
             for road_class, blob in rows:
-                points = self.to_drawn(array("d", blob))
-                if len(points) < 4:
-                    continue  # the whole road fits in one pixel at this zoom
-                if road_class != current_class:
-                    color, width = ROAD_STYLES[road_class]
-                    self.roads.add(Color(*color))
-                    current_class = road_class
-                self.roads.add(Line(points=points, width=max(1.01, width * width_scale),
-                                    cap="round", joint="round"))
+                by_class.setdefault(road_class, []).append(blob)
+            width_scale = 1.0 if mpp < 8 else 0.75 if mpp < 40 else 0.5
+            for road_class in sorted(by_class, reverse=True):  # small roads first, big roads on top
+                blobs = by_class[road_class]
+                coords = (np.frombuffer(b"".join(blobs), np.float64).reshape(-1, 2) - (cx, cy)) / mpp
+                lengths = np.fromiter((len(blob) // 16 for blob in blobs), np.int64, len(blobs))
+                starts = np.concatenate(([0], np.cumsum(lengths)[:-1]))
+                color, width = ROAD_STYLES[road_class]
+                layers.append((color, stroke_meshes(coords, starts, width * width_scale)))
+        Clock.schedule_once(lambda dt: self.show_roads(request, layers))
+
+    def show_roads(self, request, layers):
+        """Main thread: swap the freshly loaded roads in."""
+        (cx, cy), mpp, r = request
+        self.origin, self.drawn_mpp = (cx, cy), mpp
+        self.drawn_box = (cx - r, cy - r, cx + r, cy + r)
+        self.roads.clear()
+        for color, chunks in layers:
+            self.roads.add(Color(*color))
+            for vertices, indices in chunks:
+                self.roads.add(Mesh(vertices=vertices, indices=indices, mode="triangles"))
+        self.loading = False
         self.draw_route()
         self.update_view()
-
-    def to_drawn(self, coords):
-        """Flat [x, y, x, y, ...] world coordinates to the small numbers used for drawing.
-
-        Points closer than a pixel or so to the previous one are dropped: they add nothing visible,
-        and Kivy draws thick lines with gaps when their points are bunched that tightly."""
-        ox, oy, mpp = self.origin[0], self.origin[1], self.drawn_mpp
-        out = []
-        last_x = last_y = None
-        last_i = len(coords) - 2
-        for i in range(0, len(coords), 2):
-            x, y = (coords[i] - ox) / mpp, (coords[i + 1] - oy) / mpp
-            if last_x is None or abs(x - last_x) + abs(y - last_y) >= MIN_SEGMENT or i == last_i:
-                out += (x, y)
-                last_x, last_y = x, y
-        return out
 
     def draw_route(self):
         self.route_lines.clear()
         if len(self.route_world) < 2:
             return
-        points = self.to_drawn([v for point in self.route_world for v in point])
-        self.route_lines.add(Color(*ROUTE_EDGE))
-        self.route_lines.add(Line(points=points, width=7, cap="round", joint="round"))
-        self.route_lines.add(Color(*ROUTE_COLOR))
-        self.route_lines.add(Line(points=points, width=5, cap="round", joint="round"))
+        coords = (np.array(self.route_world) - self.origin) / self.drawn_mpp
+        for color, half_width in ((ROUTE_EDGE, 6.5), (ROUTE_COLOR, 4.5)):
+            self.route_lines.add(Color(*color))
+            for vertices, indices in stroke_meshes(coords, [0], half_width):
+                self.route_lines.add(Mesh(vertices=vertices, indices=indices, mode="triangles"))
 
     def draw_car(self):
         self.car_marker.clear()

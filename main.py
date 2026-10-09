@@ -17,7 +17,10 @@ import navmap  # noqa: E402,F401  (registers NavMap so headunit.kv can use it)
 from demo_drive import DemoDrive  # noqa: E402
 from navigation import OFF_ROUTE_METERS, Navigator  # noqa: E402
 
-Window.size = (800, 480)
+if config.ON_PI:
+    Window.fullscreen = "auto"  # cover the taskbar; the car screen is the whole display
+else:
+    Window.size = (800, 480)  # the Pi's screen size, for laptop testing
 Window.clearcolor = (0.06, 0.07, 0.09, 1)  # near-black background, easy on the eyes at night
 
 # Stand-in for Spotify until the real music code exists.
