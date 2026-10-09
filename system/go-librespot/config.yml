@@ -1,0 +1,21 @@
+# go-librespot settings: makes the Pi show up as a Spotify Connect speaker named "Civic".
+# Installed to ~/.config/go-librespot/config.yml by system/install_spotify.sh.
+device_name: Civic
+device_type: automobile
+
+# PipeWire's PulseAudio layer, so music and phone-call audio are managed in one place.
+audio_backend: pulseaudio
+
+# Show up in the Spotify app on the local network, and stay logged in after the first connect.
+zeroconf_enabled: true
+zeroconf_backend: avahi
+credentials:
+  type: zeroconf
+  zeroconf:
+    persist_credentials: true
+
+# Local-only API the head unit uses for track info and play/pause/skip.
+server:
+  enabled: true
+  address: localhost
+  port: 3678

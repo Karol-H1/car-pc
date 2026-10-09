@@ -1,0 +1,12 @@
+[Unit]
+Description=Spotify Connect receiver (go-librespot)
+After=network-online.target pipewire-pulse.service
+
+[Service]
+# Reads ~/.config/go-librespot/config.yml (its default location).
+ExecStart=%h/.local/bin/go-librespot
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

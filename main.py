@@ -2,8 +2,15 @@ from datetime import datetime, timedelta
 
 from kivy.config import Config
 
-# Without this, right-clicking on a laptop leaves red "fake finger" dots for multitouch testing.
-Config.set("input", "mouse", "mouse,multitouch_on_demand")
+import config
+
+if config.ON_PI:
+    # The touchscreen reaches Kivy twice: as real multitouch from the kernel (the probesysfs
+    # provider) and as a mouse the desktop emulates from the same finger. Keep only the real one.
+    Config.remove_option("input", "mouse")
+else:
+    # Without this, right-clicking on a laptop leaves red "fake finger" dots for multitouch testing.
+    Config.set("input", "mouse", "mouse,multitouch_on_demand")
 
 from kivy.app import App  # noqa: E402
 from kivy.clock import Clock  # noqa: E402
@@ -11,24 +18,17 @@ from kivy.core.window import Window  # noqa: E402
 from kivy.properties import BooleanProperty, StringProperty  # noqa: E402
 from kivy.uix.screenmanager import NoTransition, Screen, SlideTransition  # noqa: E402
 
-import config  # noqa: E402
 import geo  # noqa: E402
 import navmap  # noqa: E402,F401  (registers NavMap so headunit.kv can use it)
 from demo_drive import DemoDrive  # noqa: E402
 from navigation import OFF_ROUTE_METERS, Navigator  # noqa: E402
+from spotify import Spotify  # noqa: E402
 
 if config.ON_PI:
     Window.fullscreen = "auto"  # cover the taskbar; the car screen is the whole display
 else:
     Window.size = (800, 480)  # the Pi's screen size, for laptop testing
 Window.clearcolor = (0.06, 0.07, 0.09, 1)  # near-black background, easy on the eyes at night
-
-# Stand-in for Spotify until the real music code exists.
-FAKE_PLAYLIST = [
-    ("Highway Lights", "The Night Drivers"),
-    ("Low Tide", "Coastal Radio"),
-    ("Engine Hum", "Basement Tapes"),
-]
 
 NO_ROUTE_TEXT = "Hold the map to choose a destination"
 
@@ -53,16 +53,16 @@ class ReverseScreen(Screen):
 class HeadUnitApp(App):
     # Kivy properties: when one of these changes, every label in the .kv file that
     # uses it redraws automatically.
-    track_title = StringProperty(FAKE_PLAYLIST[0][0])
-    track_artist = StringProperty(FAKE_PLAYLIST[0][1])
-    is_playing = BooleanProperty(True)
+    track_title = StringProperty("Spotify")
+    track_artist = StringProperty("Connecting...")
+    album_cover = StringProperty("")
+    is_playing = BooleanProperty(False)
     next_turn = StringProperty(NO_ROUTE_TEXT)
     eta = StringProperty("No route")
     has_route = BooleanProperty(False)
     phone_status = StringProperty("Phone connected")
 
     def on_start(self):
-        self.track_index = 0
         self.screen_before_reverse = "home"
         self.was_playing_before_call = False
 
@@ -74,6 +74,8 @@ class HeadUnitApp(App):
         self.map = self.root.get_screen("home").ids.navmap
         self.car_position = config.DEFAULT_POSITION
         self.map.set_car(*self.car_position, 0)
+
+        self.spotify = Spotify(lambda state: Clock.schedule_once(lambda dt: self.show_spotify(state)))
 
         # Keyboard stand-ins while testing on the laptop:
         #   R = reverse-light wire on/off, D = start a demo drive along the current route.
@@ -173,34 +175,40 @@ class HeadUnitApp(App):
         self.eta = (f"Arrive {arrival}  ·  {minutes} min  ·  "
                     f"{progress.remaining / geo.METERS_PER_MILE:.1f} mi")
 
-    # ---- Music (fake for now) ----
+    # ---- Music (Spotify) ----
+
+    def show_spotify(self, state):
+        if not state.connected:
+            self.track_title, self.track_artist = "Spotify", "Not running"
+        elif not state.active or not state.title:
+            self.track_title, self.track_artist = "Nothing playing", "Pick \"Civic\" in the Spotify app"
+        else:
+            self.track_title, self.track_artist = state.title, state.artist
+        self.album_cover = state.cover_url if state.active else ""
+        self.is_playing = state.playing
 
     def toggle_play(self):
-        self.is_playing = not self.is_playing
+        self.spotify.play_pause()
 
     def next_track(self):
-        self.track_index = (self.track_index + 1) % len(FAKE_PLAYLIST)
-        self.show_track()
+        self.spotify.next()
 
     def previous_track(self):
-        self.track_index = (self.track_index - 1) % len(FAKE_PLAYLIST)
-        self.show_track()
-
-    def show_track(self):
-        self.track_title, self.track_artist = FAKE_PLAYLIST[self.track_index]
-        self.is_playing = True
+        self.spotify.previous()
 
     # ---- Calls (fake for now) ----
 
     def start_fake_call(self):
         # Pause the music for the call, but remember whether it was playing.
         self.was_playing_before_call = self.is_playing
-        self.is_playing = False
+        if self.is_playing:
+            self.spotify.pause()
         self.phone_status = "Incoming: Mom"
         self.switch_to("call")
 
     def end_call(self):
-        self.is_playing = self.was_playing_before_call
+        if self.was_playing_before_call:
+            self.spotify.resume()
         self.phone_status = "Phone connected"
         self.switch_to("home")
 

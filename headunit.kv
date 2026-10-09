@@ -129,14 +129,25 @@ ScreenManager:
                     font_size: 13
                     color: MUTED
                     size_hint_y: 0.5
-                CardLabel:
-                    text: app.track_title
-                    font_size: 24
-                    bold: True
-                CardLabel:
-                    text: app.track_artist
-                    font_size: 18
-                    color: MUTED
+                BoxLayout:
+                    size_hint_y: 2
+                    spacing: 12 if app.album_cover else 0
+                    AsyncImage:
+                        source: app.album_cover
+                        size_hint_x: None
+                        width: self.height if app.album_cover else 0
+                        opacity: 1 if app.album_cover else 0
+                        fit_mode: "contain"
+                    BoxLayout:
+                        orientation: "vertical"
+                        CardLabel:
+                            text: app.track_title
+                            font_size: 24
+                            bold: True
+                        CardLabel:
+                            text: app.track_artist
+                            font_size: 18
+                            color: MUTED
                 BoxLayout:
                     spacing: 8
                     size_hint_y: 1.4
