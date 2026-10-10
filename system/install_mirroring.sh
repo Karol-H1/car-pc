@@ -18,9 +18,9 @@ if ! grep -q 'title="Live traffic"' "$rc"; then
     rules="$(cat "$here/labwc-rules.xml")"
     awk -v rules="$rules" '/<\/openbox_config>|<\/labwc_config>/ { print rules } { print }' "$rc.before-carpc" > "$rc"
 fi
-# Pass real multi-touch through to the mirror (so pinch-to-zoom works) instead of turning the
-# touchscreen into a single mouse pointer. The head unit app reads the touchscreen directly either way.
-sed -i 's/mouseEmulation="yes"/mouseEmulation="no"/' "$rc"
+# Keep labwc's touch-to-mouse conversion ON (mouseEmulation="yes", the Pi OS default). Turning it
+# off was tried for pinch-to-zoom, but then apps like scrcpy get no touches at all.
+sed -i 's/mouseEmulation="no"/mouseEmulation="yes"/' "$rc"
 
 kill -HUP "$(pgrep -u "$(id -u)" -x labwc)" 2>/dev/null || true  # reload the window manager's settings
 echo "Mirroring settings installed in $rc"
