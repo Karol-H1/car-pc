@@ -1,0 +1,5 @@
+	<windowRules>
+		<windowRule title="Live traffic" skipTaskbar="yes">
+			<action name="ToggleAlwaysOnTop"/>
+		</windowRule>
+	</windowRules>

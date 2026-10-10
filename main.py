@@ -1,3 +1,4 @@
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from kivy.uix.screenmanager import Screen, SlideTransition  # noqa: E402
 
 import artwork  # noqa: E402
 import geo  # noqa: E402
+import mirror  # noqa: E402
 import navmap  # noqa: E402,F401  (registers NavMap so headunit.kv can use it)
 import theme  # noqa: E402
 import widgets  # noqa: E402,F401  (registers the custom widgets for headunit.kv)
@@ -40,6 +42,16 @@ Window.clearcolor = theme.BACKGROUND
 MPH_PER_MPS = 2.23694
 SCREEN_ORDER = ["home", "music", "dashcam", "traffic"]  # top to bottom on the side rail
 WHERE_TO = ("touch_app", "Where to?", "Hold the map to set a destination")
+MIRROR_MESSAGES = {
+    "checking": "Looking for your phone...",
+    "no-adb": "Phone mirroring isn't installed here (it runs on the Pi).",
+    "missing": "Plug your Android phone in by USB to see live traffic.",
+    "unauthorized": "Unlock your phone and tap Allow on the \"USB debugging\" prompt.",
+    "ready": "Opening Google Maps on your phone...",
+    "running": "Showing Google Maps from your phone",
+    "paused": "Paused for the camera or a call.",
+    "error": "Mirroring stopped: {detail}",
+}
 
 
 # The looks of these screens live in headunit.kv. Python only needs the class names.
@@ -100,6 +112,10 @@ class HeadUnitApp(App):
     call_timer = StringProperty("0:00")
     reversing = BooleanProperty(False)
 
+    # Live traffic (phone mirroring)
+    mirror_state = StringProperty("checking")
+    mirror_message = StringProperty(MIRROR_MESSAGES["checking"])
+
     def on_start(self):
         self.screens = self.root.ids.screens
         self.map = self.screens.get_screen("home").ids.navmap
@@ -119,6 +135,11 @@ class HeadUnitApp(App):
 
         self.was_playing_before_call = False
         self.call_started = None
+
+        self.mirror = mirror.Mirror(lambda message: Clock.schedule_once(
+            lambda dt: self.mirror_stopped(message)))
+        self.checking_phone = False
+        Clock.schedule_interval(self.check_phone, 2)
 
         self.tick_clock()
         Clock.schedule_interval(self.tick_clock, 1)
@@ -316,6 +337,72 @@ class HeadUnitApp(App):
 
     def previous_track(self):
         self.spotify.previous()
+
+    # ---- Live traffic (phone mirroring) ----
+
+    def set_mirror_state(self, state, detail=""):
+        self.mirror_state = state
+        self.mirror_message = MIRROR_MESSAGES[state].format(detail=detail)
+
+    def mirror_allowed(self):
+        """Only while the Traffic page is showing, and never over the reverse camera or a call."""
+        return (self.screens.current == "traffic" and not self.reversing
+                and self.call_state == "none")
+
+    def check_phone(self, *args):
+        """Every couple of seconds while the Traffic page is open: is the phone ready to mirror?"""
+        if not self.mirror_allowed() or self.mirror.running or self.checking_phone:
+            return
+        if self.mirror_state == "error":
+            return  # wait for the Retry button instead of retrying forever
+        self.checking_phone = True
+
+        def check():
+            status, _ = mirror.phone_status()
+            Clock.schedule_once(lambda dt: self.phone_checked(status))
+        threading.Thread(target=check, daemon=True).start()
+
+    def phone_checked(self, status):
+        self.checking_phone = False
+        if status == "ready" and self.mirror_allowed() and not self.mirror.running:
+            self.start_mirror()
+        elif not self.mirror.running:
+            self.set_mirror_state(status)
+
+    def start_mirror(self):
+        area = self.screens.get_screen("traffic").ids.mirror_area
+        x, y = area.to_window(*area.pos)
+        top = Window.height - (y + area.height)  # scrcpy counts from the top of the screen
+        self.set_mirror_state("ready")
+        self.mirror.start(int(x), int(top), int(area.width), int(area.height))
+        self.set_mirror_state("running")
+
+    def stop_mirror(self, paused=False):
+        if self.mirror.running:
+            self.mirror.stop()
+            self.set_mirror_state("paused" if paused else "checking")
+
+    def mirror_stopped(self, message):
+        self.set_mirror_state("error", message)
+
+    def retry_mirror(self):
+        self.set_mirror_state("checking")
+        self.check_phone()
+
+    def on_reversing(self, _, reversing):
+        if reversing:
+            self.stop_mirror(paused=True)
+        else:
+            Clock.schedule_once(self.check_phone, 0.5)
+
+    def on_call_state(self, _, state):
+        if state != "none":
+            self.stop_mirror(paused=True)
+        else:
+            Clock.schedule_once(self.check_phone, 0.5)
+
+    def on_stop(self):
+        self.mirror.stop()  # don't leave the mirror window behind when the app quits
 
     # ---- Calls (fake for now) ----
 
