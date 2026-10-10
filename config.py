@@ -16,3 +16,8 @@ DEFAULT_POSITION = (42.3601, -71.0589)
 
 # How fast the demo drive moves along the route, in meters per second (40 m/s is about 90 mph).
 DEMO_SPEED = 40
+
+# Look and feel. AMBIENT_FPS is how often the glowing background drifts (0 = keep it still).
+# CARPC_NO_SPLASH=1 skips the startup animation (handy for tests).
+AMBIENT_FPS = 20
+SHOW_SPLASH = not os.environ.get("CARPC_NO_SPLASH")

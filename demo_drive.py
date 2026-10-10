@@ -6,7 +6,8 @@ UPDATES_PER_SECOND = 10
 
 class DemoDrive:
     def __init__(self, route, on_position, speed):
-        """Calls on_position(lat, lon, heading) as the pretend car moves at speed meters per second."""
+        """Calls on_position(lat, lon, heading, speed) as the pretend car moves at speed meters per
+        second."""
         self.route = route
         self.on_position = on_position
         self.speed = speed
@@ -15,7 +16,7 @@ class DemoDrive:
 
     def tick(self, dt):
         self.along = min(self.along + self.speed * dt, self.route.length)
-        self.on_position(*self.route.point_at(self.along))
+        self.on_position(*self.route.point_at(self.along), self.speed)
         if self.along >= self.route.length:
             self.stop()
 

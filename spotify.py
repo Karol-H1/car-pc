@@ -24,6 +24,7 @@ class SpotifyState:
     title: str = ""
     artist: str = ""
     cover_url: str = ""
+    album: str = ""
     duration: int = 0        # milliseconds
     # go-librespot only reports the position when something happens (new track, seek, pause), so
     # remember the last report and when it came; position_now() works out the rest.
@@ -110,6 +111,7 @@ class Spotify:
                     title=track.get("name", ""),
                     artist=", ".join(track.get("artist_names") or []),
                     cover_url=track.get("album_cover_url") or "",
+                    album=track.get("album_name") or "",
                     duration=track.get("duration", 0), position=track.get("position", 0),
                     position_at=time.monotonic())
 
@@ -120,6 +122,7 @@ class Spotify:
             self.update(active=True, title=data.get("name", ""),
                         artist=", ".join(data.get("artist_names") or []),
                         cover_url=data.get("album_cover_url") or "",
+                        album=data.get("album_name") or "",
                         duration=data.get("duration", 0), position=data.get("position", 0),
                         position_at=now)
         elif kind == "seek":

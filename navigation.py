@@ -26,6 +26,8 @@ def routing_config():
 @dataclass
 class Progress:
     instruction: str      # the next thing to do, e.g. "Turn right onto Main Street."
+    maneuver_type: int    # Valhalla's number for the kind of turn (theme.MANEUVER_ICONS)
+    street: str           # the street that maneuver leads onto, if it has a name
     to_maneuver: float    # meters until that maneuver
     remaining: float      # meters left in the whole trip
     time_left: float      # seconds left in the whole trip
@@ -110,8 +112,9 @@ class Route:
                 time_left += maneuver["time"] * (end - along) / (end - start)
 
         remaining = self.length - along
-        return Progress(upcoming["instruction"], to_maneuver, remaining, time_left, off_route,
-                        remaining < ARRIVED_METERS)
+        street = ", ".join(upcoming.get("street_names") or upcoming.get("begin_street_names") or [])
+        return Progress(upcoming["instruction"], upcoming.get("type", 0), street, to_maneuver,
+                        remaining, time_left, off_route, remaining < ARRIVED_METERS)
 
 
 class Navigator:

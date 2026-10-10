@@ -11,28 +11,27 @@ import threading
 import numpy as np
 from kivy.clock import Clock
 from kivy.core.text import Label as CoreLabel
-from kivy.graphics import (Color, InstructionGroup, Mesh, PopMatrix, PushMatrix, Rectangle, Rotate,
-                           Scale, Translate, Triangle)
-from kivy.properties import BooleanProperty, NumericProperty
-from kivy.uix.stencilview import StencilView
+from kivy.graphics import (Color, Ellipse, InstructionGroup, Mesh, PopMatrix, PushMatrix, Rectangle,
+                           Rotate, RoundedRectangle, Scale, StencilPop, StencilPush, StencilUnUse,
+                           StencilUse, Translate, Triangle)
+from kivy.properties import BooleanProperty, ColorProperty, NumericProperty
+from kivy.uix.widget import Widget
 
 import config
 import geo
+import theme
 
-BACKGROUND = (0.11, 0.12, 0.14, 1)
-ROUTE_COLOR = (0.18, 0.5, 0.95, 1)
-ROUTE_EDGE = (0.07, 0.22, 0.45, 1)
-CAR_COLOR = (0.18, 0.5, 0.95, 1)
+BACKGROUND = (0.05, 0.06, 0.085, 1)
 
 # Color and half-width (pixels) for each road class number from tools/build_map_data.py.
 ROAD_STYLES = [
-    ((0.86, 0.62, 0.30, 1), 6.0),  # 0 motorway
-    ((0.78, 0.68, 0.42, 1), 5.0),  # 1 trunk
-    ((0.56, 0.58, 0.63, 1), 4.5),  # 2 primary
-    ((0.47, 0.49, 0.54, 1), 4.0),  # 3 secondary
-    ((0.40, 0.42, 0.47, 1), 3.5),  # 4 tertiary
-    ((0.31, 0.33, 0.37, 1), 2.5),  # 5 residential
-    ((0.24, 0.26, 0.30, 1), 1.5),  # 6 service
+    ((0.98, 0.62, 0.26, 1), 6.0),  # 0 motorway
+    ((0.88, 0.71, 0.40, 1), 5.0),  # 1 trunk
+    ((0.44, 0.49, 0.60, 1), 4.5),  # 2 primary
+    ((0.37, 0.41, 0.52, 1), 4.0),  # 3 secondary
+    ((0.31, 0.35, 0.45, 1), 3.5),  # 4 tertiary
+    ((0.22, 0.25, 0.33, 1), 2.5),  # 5 residential
+    ((0.16, 0.18, 0.25, 1), 1.5),  # 6 service
 ]
 
 MIN_MPP = 0.5    # closest zoom, meters per pixel
@@ -44,7 +43,7 @@ QUAD_INDICES = (np.array([0, 1, 2, 2, 1, 3], np.uint16)
                 + 4 * np.arange(SEGMENTS_PER_MESH, dtype=np.uint16)[:, None]).ravel()
 # Street names
 LABEL_FONT_SIZE = 13
-LABEL_COLOR = (0.86, 0.88, 0.92, 1)
+LABEL_COLOR = (0.80, 0.84, 0.92, 1)
 LABEL_MAX_MPP = 8        # only label streets when zoomed in this close
 LABEL_MAX_CLASS = 5      # don't label service roads (driveways, parking lots)
 MAX_LABELS = 60
@@ -204,15 +203,40 @@ def pick_place_labels(places):
     return [(name, x, y, rank) for name, x, y, rank, _, _ in chosen]
 
 
+def dot_meshes(points, radius, sides=12):
+    """A filled circle at every point (as Mesh chunks): rounds off the bends in a thick line."""
+    angles = np.linspace(0, 2 * np.pi, sides, endpoint=False)
+    rim = np.stack([np.cos(angles), np.sin(angles)], axis=1) * radius
+    per_dot = sides + 1  # center plus rim
+    fan = np.array([(0, 1 + i, 1 + (i + 1) % sides) for i in range(sides)], np.uint16).ravel()
+    dots_per_mesh = 65535 // per_dot
+    chunks = []
+    for start in range(0, len(points), dots_per_mesh):
+        part = points[start:start + dots_per_mesh]
+        vertices = np.zeros((len(part), per_dot, 4), np.float32)
+        vertices[:, 0, :2] = part
+        vertices[:, 1:, :2] = part[:, None, :] + rim[None, :, :]
+        indices = (fan[None, :] + (per_dot * np.arange(len(part), dtype=np.uint16))[:, None]).ravel()
+        chunks.append((vertices.ravel(), indices))
+    return chunks
+
+
+def blend(color, other, amount):
+    """Mix two colors: amount 0 gives color, 1 gives other. Always opaque."""
+    return tuple(c + (o - c) * amount for c, o in zip(color[:3], other[:3])) + (1,)
+
+
 def rotate(x, y, degrees):
     """Rotate a vector counterclockwise."""
     a = math.radians(degrees)
     return x * math.cos(a) - y * math.sin(a), x * math.sin(a) + y * math.cos(a)
 
 
-class NavMap(StencilView):
+class NavMap(Widget):
     following = BooleanProperty(True)  # keep the car in view, pointing up
     mpp = NumericProperty(DRIVING_MPP)  # zoom, in meters per pixel (smaller = closer)
+    radius = NumericProperty(18)       # rounded corners
+    accent = ColorProperty(theme.ACCENT)  # route and car color
 
     __events__ = ("on_destination",)
 
@@ -244,9 +268,17 @@ class NavMap(StencilView):
         self.press_start = None
         self.long_press = None
 
+        # Everything drawn between the two stencil masks is clipped to a rounded rectangle.
         with self.canvas.before:
+            StencilPush()
+            self.mask_in = RoundedRectangle()
+            StencilUse()
             Color(*BACKGROUND)
             self.background = Rectangle()
+        with self.canvas.after:
+            StencilUnUse()
+            self.mask_out = RoundedRectangle()
+            StencilPop()
         with self.canvas:
             PushMatrix()
             self.move_to_anchor = Translate()
@@ -260,7 +292,9 @@ class NavMap(StencilView):
             self.car_marker = InstructionGroup()
 
         self.reload_soon = Clock.create_trigger(self.reload)
-        self.bind(pos=self.update_view, size=self.update_view, mpp=self.update_view)
+        self.route_colors = []  # (Color instruction, alpha) per route layer, recolored with accent
+        self.bind(pos=self.update_view, size=self.update_view, mpp=self.update_view,
+                  radius=self.update_view, accent=self.recolor_route)
 
     def on_destination(self, lat, lon):
         pass
@@ -328,6 +362,8 @@ class NavMap(StencilView):
     def update_view(self, *args):
         """Cheap: moves the already-drawn geometry. Reloads roads only when needed."""
         self.background.pos, self.background.size = self.pos, self.size
+        for mask in (self.mask_in, self.mask_out):
+            mask.pos, mask.size, mask.radius = self.pos, self.size, [self.radius]
         self.move_to_anchor.xy = self.anchor()
         self.turn.angle = self.rotation
         k = self.drawn_mpp / self.mpp
@@ -424,13 +460,44 @@ class NavMap(StencilView):
 
     def draw_route(self):
         self.route_lines.clear()
+        self.route_colors = []
         if len(self.route_world) < 2:
             return
         coords = (np.array(self.route_world) - self.origin) / self.drawn_mpp
-        for color, half_width in ((ROUTE_EDGE, 6.5), (ROUTE_COLOR, 4.5)):
-            self.route_lines.add(Color(*color))
-            for vertices, indices in stroke_meshes(coords, [0], half_width):
+        # A dark halo, the colored line, and a bright thread down the middle. All opaque, so the
+        # pieces can overlap at bends without leaving darker or lighter blotches.
+        for layer, half_width in (("halo", 9), ("line", 5), ("thread", 1.5)):
+            color = Color(*self.route_color(layer))
+            self.route_lines.add(color)
+            self.route_colors.append((color, layer))
+            for vertices, indices in (stroke_meshes(coords, [0], half_width)
+                                      + dot_meshes(coords, half_width)):
                 self.route_lines.add(Mesh(vertices=vertices, indices=indices, mode="triangles"))
+
+    def route_color(self, layer):
+        if layer == "halo":
+            return blend(self.accent, BACKGROUND, 0.62)
+        if layer == "thread":
+            return blend(self.accent, (1, 1, 1), 0.6)
+        return tuple(self.accent)
+
+    def recolor_route(self, *args):
+        for color, layer in self.route_colors:
+            color.rgba = self.route_color(layer)
+        self.draw_car()
+
+    def nearest_place(self, lat, lon, max_meters=15000):
+        """Name of the town or neighborhood closest to a point, or None."""
+        if not self.has_places:
+            return None
+        x, y = geo.to_world(lat, lon)
+        reach = max_meters / math.cos(math.radians(lat))  # Mercator meters are stretched
+        with sqlite3.connect(config.MAP_DB) as db:  # own connection: the loader thread uses self.db
+            row = db.execute(
+                "SELECT name FROM places WHERE rank <= 3 AND x BETWEEN ? AND ? AND y BETWEEN ? AND ? "
+                "ORDER BY (x - ?) * (x - ?) + (y - ?) * (y - ?) LIMIT 1",
+                (x - reach, x + reach, y - reach, y + reach, x, x, y, y)).fetchone()
+        return row[0] if row else None
 
     def draw_labels(self, labels):
         self.labels.clear()
@@ -456,7 +523,7 @@ class NavMap(StencilView):
                 self.labels.add(instruction)
             self.label_parts.append((angle, turn, size))
 
-    def draw_car(self):
+    def draw_car(self, *args):
         self.car_marker.clear()
         if self.car is None:
             return
@@ -466,10 +533,16 @@ class NavMap(StencilView):
         def corner(distance, offset):
             dx, dy = rotate(0, distance, angle + offset)
             return x + dx, y + dy
-        for color, size in (((1, 1, 1, 1), 1.35), (CAR_COLOR, 1.0)):
-            self.car_marker.add(Color(*color))
-            self.car_marker.add(Triangle(points=[*corner(16 * size, 0), *corner(12 * size, 140),
-                                                 *corner(12 * size, -140)]))
+        add = self.car_marker.add
+        # Glowing halo, white ring, colored disc, white arrow.
+        add(Color(*theme.with_alpha(self.accent, 0.35)))
+        add(Rectangle(texture=theme.glow_texture(), pos=(x - 34, y - 34), size=(68, 68)))
+        add(Color(1, 1, 1, 1))
+        add(Ellipse(pos=(x - 13, y - 13), size=(26, 26)))
+        add(Color(*self.accent))
+        add(Ellipse(pos=(x - 10.5, y - 10.5), size=(21, 21)))
+        add(Color(1, 1, 1, 1))
+        add(Triangle(points=[*corner(8, 0), *corner(7, 140), *corner(7, -140)]))
 
     # ---------- Touch: drag to pan, pinch or scroll to zoom, hold to pick a destination ----------
 

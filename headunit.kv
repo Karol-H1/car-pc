@@ -1,270 +1,972 @@
 #:kivy 2.3
+#:import theme theme
+#:import ICONS theme.ICONS
+#:import with_alpha theme.with_alpha
+#:set BACKGROUND theme.BACKGROUND
+#:set GLASS theme.GLASS
+#:set GLASS_STRONG theme.GLASS_STRONG
+#:set EDGE theme.EDGE
+#:set TEXT theme.TEXT
+#:set MUTED theme.MUTED
+#:set DIM theme.DIM
+#:set GOOD theme.GOOD
+#:set DANGER theme.DANGER
 
-# Colors used throughout, defined once so the theme is easy to change.
-#:set CARD (0.13, 0.14, 0.17, 1)
-#:set BUTTON (0.22, 0.24, 0.29, 1)
-#:set ACCENT (0.18, 0.5, 0.95, 1)
-#:set MUTED (0.62, 0.65, 0.7, 1)
-#:set DANGER (0.85, 0.25, 0.25, 1)
-#:set GOOD (0.2, 0.7, 0.35, 1)
 
+# ================= Building blocks =================
 
-# ---------- Reusable building blocks ----------
-
-# A rounded dark panel. Anything placed inside it stacks top to bottom.
+# Frosted-glass card.
 <Card@BoxLayout>:
-    orientation: "vertical"
-    padding: 14
-    spacing: 6
+    radius: 18
     canvas.before:
         Color:
-            rgba: CARD
+            rgba: GLASS
         RoundedRectangle:
             pos: self.pos
             size: self.size
-            radius: [14]
+            radius: [self.radius]
+        Color:
+            rgba: EDGE
+        Line:
+            rounded_rectangle: (self.x, self.y, self.width, self.height, self.radius)
+            width: 1
 
-# A left-aligned label that cuts long text off with "..." instead of overflowing.
-<CardLabel@Label>:
+# Darker card that floats over the map.
+<FloatCard@HideBox>:
+    radius: 16
+    canvas.before:
+        Color:
+            rgba: 0, 0, 0, 0.45
+        BoxShadow:
+            pos: self.pos
+            size: self.size
+            offset: 0, -3
+            blur_radius: 18
+            border_radius: [self.radius] * 4
+        Color:
+            rgba: GLASS_STRONG
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [self.radius]
+        Color:
+            rgba: EDGE
+        Line:
+            rounded_rectangle: (self.x, self.y, self.width, self.height, self.radius)
+            width: 1
+
+# Text that fills its box, left-aligned, cut short with "..." when too long. Roboto, so any language works.
+<Txt@Label>:
     text_size: self.size
     halign: "left"
     valign: "middle"
     shorten: True
     shorten_from: "right"
+    color: TEXT
+    font_size: 16
 
-# A flat, big, finger-friendly button.
-<BigButton@Button>:
-    font_size: 22
-    background_normal: ""
-    background_color: BUTTON
+# Numbers and labels in the display font.
+<Num@Txt>:
+    font_name: "Display"
+
+# Small uppercase heading above a card's content.
+<Eyebrow@Num>:
+    font_size: 13
+    color: MUTED
+    size_hint_y: None
+    height: 18
+
+# Text sized to its own content (for rows of mixed sizes).
+<Fit@Label>:
+    size_hint_x: None
+    width: self.texture_size[0]
+    color: TEXT
+
+<IconLabel@Label>:
+    icon: ""
+    font_name: "Icons"
+    text: ICONS.get(self.icon, "")
+    font_size: 24
+    color: TEXT
+
+<IconButton>:
+    font_name: "Icons"
+    text: ICONS.get(self.icon, "")
+    font_size: 30
+    color: TEXT
+    canvas.before:
+        Color:
+            rgba: 1, 1, 1, (0.16 if self.state == "down" else 0)
+        Ellipse:
+            pos: self.center_x - min(self.size) / 2, self.center_y - min(self.size) / 2
+            size: min(self.size), min(self.size)
+
+<RoundButton>:
+    font_name: "Icons"
+    text: ICONS.get(self.icon, "")
+    font_size: self.height * 0.5
+    color: self.icon_color
+    canvas.before:
+        Color:
+            rgba: with_alpha(self.fill, 0.5 if self.state == "normal" else 0.9)
+        BoxShadow:
+            pos: self.pos
+            size: self.size
+            offset: 0, -2
+            blur_radius: self.height * 0.55
+            spread_radius: -4, -4
+            border_radius: [self.height / 2] * 4
+        Color:
+            rgba: self.fill if self.state == "normal" else theme.shift_hue(self.fill, 0, value=0.78)
+        Ellipse:
+            pos: self.pos
+            size: self.size
+
+<RailButton>:
+    orientation: "vertical"
+    padding: 0, 6
+    canvas.before:
+        Color:
+            rgba: with_alpha(app.accent, 0.16 if self.active else (0.08 if self.state == "down" else 0))
+        RoundedRectangle:
+            pos: self.x + 10, self.y + 2
+            size: self.width - 20, self.height - 4
+            radius: [14]
+        Color:
+            rgba: app.accent if self.active else (0, 0, 0, 0)
+        RoundedRectangle:
+            pos: self.x, self.center_y - 14
+            size: 4, 28
+            radius: [2]
+    IconLabel:
+        icon: root.icon
+        font_size: 28
+        color: app.accent if root.active else MUTED
+    Label:
+        text: root.caption
+        font_name: "Display"
+        font_size: 12
+        size_hint_y: 0.5
+        color: TEXT if root.active else DIM
+
+# Custom look for the song progress bar (the leading "-" replaces Slider's built-in style).
+<-SeekBar>:
+    canvas:
+        Color:
+            rgba: 1, 1, 1, 0.16
+        RoundedRectangle:
+            pos: self.x + self.padding, self.center_y - 2
+            size: self.width - 2 * self.padding, 4
+            radius: [2]
+        Color:
+            rgba: app.accent
+        RoundedRectangle:
+            pos: self.x + self.padding, self.center_y - 2
+            size: max(0, self.value_pos[0] - self.x - self.padding), 4
+            radius: [2]
+        Color:
+            rgba: with_alpha(app.accent, 0.35 if self.dragging else 0.22)
+        Ellipse:
+            pos: self.value_pos[0] - (14 if self.dragging else 10), self.center_y - (14 if self.dragging else 10)
+            size: (28, 28) if self.dragging else (20, 20)
+        Color:
+            rgba: 1, 1, 1, (1 if not self.disabled else 0)
+        Ellipse:
+            pos: self.value_pos[0] - 6, self.center_y - 6
+            size: 12, 12
+
+<EqualizerBars>:
+    canvas:
+        Color:
+            rgba: self.color
+        Rectangle:
+            pos: self.x, self.y
+            size: 3, max(2, self.height * self.levels[0])
+        Rectangle:
+            pos: self.x + 6, self.y
+            size: 3, max(2, self.height * self.levels[1])
+        Rectangle:
+            pos: self.x + 12, self.y
+            size: 3, max(2, self.height * self.levels[2])
+        Rectangle:
+            pos: self.x + 18, self.y
+            size: 3, max(2, self.height * self.levels[3])
+
+# Album cover with rounded corners and a soft shadow; a music note when there's no cover.
+<CoverArt@FloatLayout>:
+    radius: 12
+    canvas.before:
+        Color:
+            rgba: 0, 0, 0, 0.55
+        BoxShadow:
+            pos: self.pos
+            size: self.size
+            offset: 0, -4
+            blur_radius: 22
+            border_radius: [self.radius] * 4
+        Color:
+            rgba: (1, 1, 1, 1) if app.cover_texture else with_alpha(app.accent, 0.22)
+        RoundedRectangle:
+            texture: app.cover_texture
+            pos: self.pos
+            size: self.size
+            radius: [self.radius]
+    IconLabel:
+        icon: "music_note"
+        font_size: root.height * 0.42
+        color: app.accent
+        opacity: 0 if app.cover_texture else 1
+        pos_hint: {"center_x": 0.5, "center_y": 0.5}
+
+<TimeRow@BoxLayout>:
+    spacing: 4
+    size_hint_y: None
+    height: 30
+    opacity: 1 if app.track_duration else 0.4
+    Fit:
+        text: app.format_time(app.track_position)
+        font_name: "Display"
+        font_size: 14
+        color: MUTED
+    SeekBar:
+        id: seek_bar
+        min: 0
+        max: max(1, app.track_duration)
+        value: app.track_position
+        disabled: not app.track_duration
+        on_dragging: app.seeking = args[1]
+        on_seek: app.seek_to(args[1])
+    Fit:
+        text: app.format_time(app.track_duration)
+        font_name: "Display"
+        font_size: 14
+        color: MUTED
 
 
-# ---------- The app's root: one ScreenManager holding every screen ----------
+# ================= The whole screen =================
 
-ScreenManager:
-    HomeScreen:
-        name: "home"
-    DashcamScreen:
-        name: "dashcam"
-    CallScreen:
-        name: "call"
-    ReverseScreen:
-        name: "reverse"
+FloatLayout:
+    AmbientBackground:
+        accent: app.accent
+
+    BoxLayout:
+        # ----- Side rail -----
+        BoxLayout:
+            orientation: "vertical"
+            size_hint_x: None
+            width: 76
+            padding: 0, 10, 0, 10
+            spacing: 6
+            IconLabel:
+                icon: "directions_car"
+                font_size: 30
+                color: app.accent
+                size_hint_y: None
+                height: 50
+            RailButton:
+                icon: "navigation"
+                caption: "DRIVE"
+                active: screens.current == "home"
+                on_release: app.switch_to("home")
+            RailButton:
+                icon: "library_music"
+                caption: "MUSIC"
+                active: screens.current == "music"
+                on_release: app.switch_to("music")
+            RailButton:
+                icon: "videocam"
+                caption: "DASHCAM"
+                active: screens.current == "dashcam"
+                on_release: app.switch_to("dashcam")
+            RailButton:
+                icon: "traffic"
+                caption: "TRAFFIC"
+                active: screens.current == "traffic"
+                on_release: app.switch_to("traffic")
+            Widget:
+
+        BoxLayout:
+            orientation: "vertical"
+
+            # ----- Status bar -----
+            BoxLayout:
+                size_hint_y: None
+                height: 40
+                padding: 4, 6, 16, 0
+                spacing: 6
+                Fit:
+                    text: app.clock_time
+                    font_name: "Display"
+                    bold: True
+                    font_size: 28
+                Fit:
+                    text: app.clock_ampm
+                    font_name: "Display"
+                    font_size: 15
+                    color: MUTED
+                    padding: 0, 0, 0, 2
+                Widget:
+                    size_hint_x: None
+                    width: 8
+                Fit:
+                    text: app.clock_date
+                    font_name: "Display"
+                    font_size: 16
+                    color: MUTED
+                Widget:
+                Fit:
+                    text: app.trip_text
+                    font_name: "Display"
+                    font_size: 16
+                    color: app.accent
+                Widget:
+                    size_hint_x: None
+                    width: 12
+                IconLabel:
+                    icon: "headphones"
+                    size_hint_x: None
+                    width: 28
+                    font_size: 20
+                    color: GOOD if app.spotify_connected else DIM
+                IconLabel:
+                    icon: "gps_fixed" if app.gps_fix else "gps_not_fixed"
+                    size_hint_x: None
+                    width: 28
+                    font_size: 20
+                    color: app.accent if app.gps_fix else DIM
+                IconLabel:
+                    icon: "wifi" if app.wifi_on else "wifi_off"
+                    size_hint_x: None
+                    width: 28
+                    font_size: 20
+                    color: TEXT if app.wifi_on else DIM
+
+            ScreenManager:
+                id: screens
+                HomeScreen:
+                    name: "home"
+                MusicScreen:
+                    name: "music"
+                DashcamScreen:
+                    name: "dashcam"
+                TrafficScreen:
+                    name: "traffic"
+
+    CallOverlay:
+        shown: app.call_state != "none"
+    ReverseOverlay:
+        shown: app.reversing
+    Splash:
+        id: splash
 
 
-# ---------- Home: navigation on the left, music and phone on the right ----------
+# ================= Drive (home) =================
 
 <HomeScreen>:
     BoxLayout:
-        padding: 10
-        spacing: 10
+        padding: 2, 4, 12, 12
+        spacing: 12
 
-        # Left side: navigation
+        # ----- Map with floating cards -----
+        FloatLayout:
+            size_hint_x: 1.4
+            canvas.before:
+                Color:
+                    rgba: 0, 0, 0, 0.5
+                BoxShadow:
+                    pos: self.pos
+                    size: self.size
+                    offset: 0, -4
+                    blur_radius: 26
+                    border_radius: [18] * 4
+            NavMap:
+                id: navmap
+                accent: app.accent
+                pos_hint: {"x": 0, "y": 0}
+                on_destination: app.navigate_to(args[1], args[2])
+
+            # Next turn
+            FloatCard:
+                pos_hint: {"x": 0.03, "top": 0.97}
+                size_hint: 0.94, None
+                height: 76
+                padding: 10
+                spacing: 12
+                IconLabel:
+                    icon: app.banner_icon
+                    size_hint_x: None
+                    width: 56
+                    font_size: 42
+                    color: app.accent if app.has_route else MUTED
+                    canvas.before:
+                        Color:
+                            rgba: with_alpha(app.accent, 0.16 if app.has_route else 0.07)
+                        RoundedRectangle:
+                            pos: self.pos
+                            size: self.size
+                            radius: [12]
+                BoxLayout:
+                    orientation: "vertical"
+                    Num:
+                        text: app.banner_title
+                        font_size: 30
+                        bold: True
+                    Txt:
+                        text: app.banner_text
+                        font_size: 15
+                        color: TEXT if app.has_route else MUTED
+
+            # Arrival time, trip left, and the button to end the route
+            FloatCard:
+                shown: app.has_route
+                opacity: 0
+                pos_hint: {"x": 0.03, "y": 0.04}
+                size_hint: None, None
+                size: 262, 56
+                padding: 14, 4, 4, 4
+                spacing: 4
+                BoxLayout:
+                    orientation: "vertical"
+                    Num:
+                        text: app.eta_arrival
+                        font_size: 24
+                        bold: True
+                        color: app.accent
+                    Num:
+                        text: "ARRIVAL"
+                        font_size: 11
+                        color: MUTED
+                BoxLayout:
+                    orientation: "vertical"
+                    Num:
+                        text: app.eta_minutes
+                        font_size: 22
+                        bold: True
+                    Num:
+                        text: "MIN"
+                        font_size: 11
+                        color: MUTED
+                BoxLayout:
+                    orientation: "vertical"
+                    Num:
+                        text: app.eta_miles
+                        font_size: 22
+                        bold: True
+                    Num:
+                        text: "MILES"
+                        font_size: 11
+                        color: MUTED
+                IconButton:
+                    icon: "close"
+                    font_size: 24
+                    color: MUTED
+                    size_hint_x: None
+                    width: 46
+                    on_release: app.cancel_route()
+
+            # Speed
+            FloatCard:
+                shown: app.speed_text != ""
+                opacity: 0
+                radius: 30
+                pos_hint: {"right": 0.97, "y": 0.04}
+                size_hint: None, None
+                size: 60, 60
+                orientation: "vertical"
+                padding: 0, 8, 0, 8
+                Label:
+                    text: app.speed_text
+                    font_name: "Display"
+                    bold: True
+                    font_size: 26
+                    color: TEXT
+                Label:
+                    text: "MPH"
+                    font_name: "Display"
+                    font_size: 10
+                    color: MUTED
+                    size_hint_y: 0.45
+
+            # Back to following the car
+            FloatCard:
+                shown: not navmap.following
+                opacity: 0
+                radius: 24
+                pos_hint: {"right": 0.97, "y": 0.2 if app.speed_text else 0.04}
+                size_hint: None, None
+                size: 48, 48
+                IconButton:
+                    icon: "my_location"
+                    font_size: 24
+                    color: app.accent
+                    on_release: navmap.recenter()
+
+        # ----- Music and phone -----
         BoxLayout:
             orientation: "vertical"
-            size_hint_x: 0.6
-            spacing: 10
+            spacing: 12
 
-            # Turn banner
+            # Now playing, on a blurred copy of the album cover
             BoxLayout:
-                size_hint_y: None
-                height: 70
-                padding: 14, 0
+                orientation: "vertical"
+                size_hint_y: 0.7
+                padding: 14, 12, 14, 8
+                spacing: 6
                 canvas.before:
                     Color:
-                        rgba: ACCENT
+                        rgba: (1, 1, 1, 0.6) if app.backdrop_texture else GLASS
+                    RoundedRectangle:
+                        texture: app.backdrop_texture
+                        pos: self.pos
+                        size: self.size
+                        radius: [18]
+                    Color:
+                        rgba: 0, 0, 0, (0.42 if app.backdrop_texture else 0)
                     RoundedRectangle:
                         pos: self.pos
                         size: self.size
-                        radius: [14]
-                CardLabel:
-                    text: app.next_turn
-                    font_size: 22
-                    bold: True
-
-            # Map, with buttons floating over it
-            FloatLayout:
-                NavMap:
-                    id: navmap
-                    pos_hint: {"x": 0, "y": 0}
-                    on_destination: app.navigate_to(args[1], args[2])
-                BigButton:
-                    text: "Re-center"
-                    font_size: 18
-                    size_hint: None, None
-                    size: 120, 44
-                    pos_hint: {"right": 0.97, "y": 0.04}
-                    opacity: 0 if navmap.following else 0.9
-                    disabled: navmap.following
-                    on_press: navmap.recenter()
-                BigButton:
-                    text: "End route"
-                    font_size: 18
-                    size_hint: None, None
-                    size: 120, 44
-                    pos_hint: {"x": 0.03, "y": 0.04}
-                    opacity: 0.9 if app.has_route else 0
-                    disabled: not app.has_route
-                    on_press: app.cancel_route()
-
-            # ETA bar
-            Card:
-                size_hint_y: None
-                height: 50
-                padding: 14, 0
-                CardLabel:
-                    text: app.eta
-                    font_size: 18
-                    color: MUTED
-
-        # Right side: music, phone, and shortcuts
-        BoxLayout:
-            orientation: "vertical"
-            spacing: 10
-
-            # Now playing
-            Card:
-                CardLabel:
-                    text: "NOW PLAYING"
-                    font_size: 13
-                    color: MUTED
-                    size_hint_y: 0.5
+                        radius: [18]
+                    Color:
+                        rgba: EDGE
+                    Line:
+                        rounded_rectangle: (self.x, self.y, self.width, self.height, 18)
+                        width: 1
                 BoxLayout:
-                    size_hint_y: 2
-                    spacing: 12 if app.album_cover else 0
-                    AsyncImage:
-                        source: app.album_cover
+                    size_hint_y: None
+                    height: 18
+                    Eyebrow:
+                        text: "NOW PLAYING"
+                    EqualizerBars:
+                        playing: app.is_playing
+                        color: app.accent
                         size_hint_x: None
-                        width: self.height if app.album_cover else 0
-                        opacity: 1 if app.album_cover else 0
-                        fit_mode: "contain"
+                        width: 21
+                BoxLayout:
+                    spacing: 12
+                    CoverArt:
+                        size_hint: None, None
+                        size: 88, 88
+                        pos_hint: {"center_y": 0.5}
                     BoxLayout:
                         orientation: "vertical"
-                        CardLabel:
+                        padding: 0, 10
+                        Txt:
                             text: app.track_title
-                            font_size: 24
+                            font_size: 19
                             bold: True
-                        CardLabel:
+                        Txt:
                             text: app.track_artist
-                            font_size: 18
+                            font_size: 15
                             color: MUTED
-
-                # Track progress: drag or tap to jump within the song
+                TimeRow:
                 BoxLayout:
-                    spacing: 6
-                    opacity: 1 if app.track_duration else 0.35
-                    Label:
-                        text: app.format_time(app.track_position)
-                        font_size: 13
-                        color: MUTED
-                        size_hint_x: None
-                        width: 40
-                    SeekBar:
-                        id: seek_bar
-                        min: 0
-                        max: max(1, app.track_duration)
-                        value: app.track_position
-                        disabled: not app.track_duration
-                        cursor_size: 22, 22
-                        value_track: True
-                        value_track_color: ACCENT
-                        value_track_width: 3
-                        on_seek: app.seek_to(args[1])
-                    Label:
-                        text: app.format_time(app.track_duration)
-                        font_size: 13
-                        color: MUTED
-                        size_hint_x: None
-                        width: 40
-                BoxLayout:
-                    spacing: 8
-                    size_hint_y: 1.4
-                    BigButton:
-                        text: "Prev"
-                        on_press: app.previous_track()
-                    BigButton:
-                        text: "Pause" if app.is_playing else "Play"
-                        background_color: ACCENT
-                        on_press: app.toggle_play()
-                    BigButton:
-                        text: "Next"
-                        on_press: app.next_track()
+                    size_hint_y: None
+                    height: 60
+                    IconButton:
+                        icon: "skip_previous"
+                        on_release: app.previous_track()
+                    AnchorLayout:
+                        RoundButton:
+                            icon: "pause" if app.is_playing else "play_arrow"
+                            fill: app.accent
+                            size_hint: None, None
+                            size: 56, 56
+                            on_release: app.toggle_play()
+                    IconButton:
+                        icon: "skip_next"
+                        on_release: app.next_track()
 
             # Phone
             Card:
-                size_hint_y: 0.6
-                CardLabel:
-                    text: "PHONE"
-                    font_size: 13
-                    color: MUTED
-                    size_hint_y: 0.6
-                CardLabel:
-                    text: app.phone_status
-                    font_size: 20
-                BigButton:
-                    text: "Test call"
-                    on_press: app.start_fake_call()
+                size_hint_y: 0.3
+                padding: 14
+                spacing: 12
+                IconLabel:
+                    icon: "phone"
+                    size_hint_x: None
+                    width: 46
+                    color: app.accent
+                    canvas.before:
+                        Color:
+                            rgba: with_alpha(app.accent, 0.16)
+                        Ellipse:
+                            pos: self.center_x - 23, self.center_y - 23
+                            size: 46, 46
+                BoxLayout:
+                    orientation: "vertical"
+                    Eyebrow:
+                        text: "PHONE"
+                    Txt:
+                        text: app.phone_status
+                        font_size: 16
+                AnchorLayout:
+                    size_hint_x: None
+                    width: 48
+                    RoundButton:
+                        icon: "call"
+                        fill: GOOD
+                        size_hint: None, None
+                        size: 44, 44
+                        on_release: app.start_fake_call()
 
-            # Shortcuts
+
+# ================= Music (full screen) =================
+
+<MusicScreen>:
+    FloatLayout:
+        canvas.before:
+            Color:
+                rgba: (1, 1, 1, 0.55) if app.backdrop_texture else GLASS
+            RoundedRectangle:
+                texture: app.backdrop_texture
+                pos: self.x + 2, self.y + 12
+                size: self.width - 14, self.height - 16
+                radius: [22]
+            Color:
+                rgba: 0, 0, 0, (0.5 if app.backdrop_texture else 0)
+            RoundedRectangle:
+                pos: self.x + 2, self.y + 12
+                size: self.width - 14, self.height - 16
+                radius: [22]
+            Color:
+                rgba: EDGE
+            Line:
+                rounded_rectangle: (self.x + 2, self.y + 12, self.width - 14, self.height - 16, 22)
+                width: 1
+        BoxLayout:
+            pos_hint: {"x": 0, "y": 0}
+            padding: 34, 40, 40, 44
+            spacing: 34
+            AnchorLayout:
+                size_hint_x: None
+                width: 300
+                CoverArt:
+                    radius: 18
+                    size_hint: None, None
+                    size: 290, 290
             BoxLayout:
-                size_hint_y: None
-                height: 60
-                spacing: 10
-                BigButton:
-                    text: "Dashcam"
-                    on_press: app.switch_to("dashcam")
-                BigButton:
-                    text: "Live traffic"
-                    on_press: print("Phone mirroring comes later")
+                orientation: "vertical"
+                spacing: 4
+                Widget:
+                    size_hint_y: 0.3
+                BoxLayout:
+                    size_hint_y: None
+                    height: 20
+                    Eyebrow:
+                        text: "NOW PLAYING ON CIVIC"
+                        color: app.accent
+                    EqualizerBars:
+                        playing: app.is_playing
+                        color: app.accent
+                        size_hint_x: None
+                        width: 21
+                Txt:
+                    text: app.track_title
+                    font_size: 30
+                    bold: True
+                    size_hint_y: None
+                    height: 46
+                Txt:
+                    text: app.track_artist
+                    font_size: 20
+                    color: MUTED
+                    size_hint_y: None
+                    height: 30
+                Txt:
+                    text: app.track_album
+                    font_size: 15
+                    color: DIM
+                    size_hint_y: None
+                    height: 24
+                Widget:
+                TimeRow:
+                BoxLayout:
+                    size_hint_y: None
+                    height: 96
+                    spacing: 10
+                    IconButton:
+                        icon: "skip_previous"
+                        font_size: 40
+                        on_release: app.previous_track()
+                    AnchorLayout:
+                        RoundButton:
+                            icon: "pause" if app.is_playing else "play_arrow"
+                            fill: app.accent
+                            size_hint: None, None
+                            size: 80, 80
+                            on_release: app.toggle_play()
+                    IconButton:
+                        icon: "skip_next"
+                        font_size: 40
+                        on_release: app.next_track()
+                Widget:
+                    size_hint_y: 0.2
 
 
-# ---------- The other screens (simple placeholders for now) ----------
+# ================= Dashcam =================
 
 <DashcamScreen>:
-    BoxLayout:
-        orientation: "vertical"
-        padding: 10
-        spacing: 10
+    FloatLayout:
         Card:
+            pos_hint: {"x": 2 / max(1, root.width), "y": 12 / max(1, root.height)}
+            size_hint: None, None
+            size: root.width - 14, root.height - 16
+            radius: 22
+            orientation: "vertical"
+            padding: 30
+            Widget:
+            IconLabel:
+                icon: "videocam"
+                font_size: 84
+                color: DIM
+                size_hint_y: None
+                height: 100
             Label:
-                text: "Dashcam feed goes here"
+                text: "Dashcam not connected"
+                font_name: "Display"
+                bold: True
+                font_size: 26
+                size_hint_y: None
+                height: 40
+                color: TEXT
+            Label:
+                text: "Loop recording starts on its own once the USB camera is plugged in."
+                font_size: 15
                 color: MUTED
-                font_size: 24
-        BigButton:
-            text: "Back"
-            size_hint_y: None
-            height: 70
-            on_press: app.switch_to("home")
-
-<CallScreen>:
-    BoxLayout:
-        orientation: "vertical"
-        padding: 30
-        spacing: 20
-        Label:
-            text: app.phone_status
-            font_size: 40
-            bold: True
-        Label:
-            text: "Music paused during the call"
-            font_size: 18
-            color: MUTED
+                size_hint_y: None
+                height: 30
+            Widget:
+        # Recording status pill
         BoxLayout:
-            size_hint_y: None
-            height: 90
-            spacing: 20
-            BigButton:
-                text: "Answer"
-                background_color: GOOD
-                on_press: app.phone_status = "On call: Mom"
-            BigButton:
-                text: "Hang up"
-                background_color: DANGER
-                on_press: app.end_call()
+            size_hint: None, None
+            size: 118, 34
+            pos_hint: {"x": 22 / max(1, root.width), "top": 1 - 18 / max(1, root.height)}
+            padding: 12, 0
+            spacing: 6
+            canvas.before:
+                Color:
+                    rgba: GLASS_STRONG
+                RoundedRectangle:
+                    pos: self.pos
+                    size: self.size
+                    radius: [17]
+            IconLabel:
+                icon: "fiber_manual_record"
+                font_size: 16
+                color: DIM
+                size_hint_x: None
+                width: 18
+            Label:
+                text: "OFFLINE"
+                font_name: "Display"
+                bold: True
+                font_size: 15
+                color: MUTED
 
-<ReverseScreen>:
+
+# ================= Live traffic (phone mirroring, coming later) =================
+
+<TrafficScreen>:
+    FloatLayout:
+        Card:
+            pos_hint: {"x": 2 / max(1, root.width), "y": 12 / max(1, root.height)}
+            size_hint: None, None
+            size: root.width - 14, root.height - 16
+            radius: 22
+            orientation: "vertical"
+            padding: 30
+            Widget:
+            IconLabel:
+                icon: "cast"
+                font_size: 84
+                color: app.accent
+                size_hint_y: None
+                height: 100
+                canvas.before:
+                    Color:
+                        rgba: with_alpha(app.accent, 0.25)
+                    Rectangle:
+                        texture: theme.glow_texture()
+                        pos: self.center_x - 110, self.center_y - 110
+                        size: 220, 220
+            Label:
+                text: "Live traffic"
+                font_name: "Display"
+                bold: True
+                font_size: 28
+                size_hint_y: None
+                height: 42
+                color: TEXT
+            Label:
+                text: "Google Maps from your phone, mirrored here when you need traffic.\nComing with phone mirroring."
+                halign: "center"
+                font_size: 15
+                color: MUTED
+                size_hint_y: None
+                height: 46
+            Widget:
+
+
+# ================= Incoming / active call =================
+
+<CallOverlay@Overlay>:
+    canvas.before:
+        Color:
+            rgba: 0.02, 0.03, 0.045, 0.96
+        Rectangle:
+            pos: self.pos
+            size: self.size
+        Color:
+            rgba: with_alpha(GOOD, 0.22)
+        Rectangle:
+            texture: theme.glow_texture()
+            pos: self.center_x - 330, self.y + self.height * 0.62 - 330
+            size: 660, 660
+    PulseRings:
+        running: root.shown and app.call_state == "incoming"
+        inner: 62
+        size_hint: None, None
+        size: 340, 340
+        pos_hint: {"center_x": 0.5, "center_y": 0.62}
     Label:
-        text: "REVERSE CAMERA"
-        font_size: 48
+        text: (app.caller_name[:1] or "?").upper()
+        font_name: "Display"
         bold: True
-        color: DANGER
+        font_size: 58
+        color: TEXT
+        size_hint: None, None
+        size: 120, 120
+        pos_hint: {"center_x": 0.5, "center_y": 0.62}
+        canvas.before:
+            Color:
+                rgba: theme.shift_hue(GOOD, 0, value=0.55)
+            Ellipse:
+                pos: self.pos
+                size: self.size
+    Label:
+        text: app.caller_name
+        font_size: 34
+        bold: True
+        color: TEXT
+        size_hint: 1, None
+        height: 48
+        pos_hint: {"center_x": 0.5, "center_y": 0.36}
+    Label:
+        text: "Incoming call" if app.call_state == "incoming" else "On call  ·  " + app.call_timer
+        font_name: "Display"
+        font_size: 20
+        color: GOOD if app.call_state == "active" else MUTED
+        size_hint: 1, None
+        height: 30
+        pos_hint: {"center_x": 0.5, "center_y": 0.28}
+    BoxLayout:
+        size_hint: None, None
+        size: (76 * 2 + 140, 76) if app.call_state == "incoming" else (76, 76)
+        pos_hint: {"center_x": 0.5, "y": 0.06}
+        spacing: 140 if app.call_state == "incoming" else 0
+        RoundButton:
+            icon: "call_end"
+            fill: DANGER
+            icon_color: TEXT
+            on_release: app.end_call()
+        RoundButton:
+            icon: "call"
+            fill: GOOD
+            icon_color: TEXT
+            size_hint_x: 1 if app.call_state == "incoming" else 0
+            opacity: 1 if app.call_state == "incoming" else 0
+            disabled: app.call_state != "incoming"
+            on_release: app.answer_call()
+
+
+# ================= Reverse camera =================
+
+<ReverseOverlay@Overlay>:
+    fade: 0
+    canvas.before:
+        Color:
+            rgba: 0, 0, 0, 1
+        Rectangle:
+            pos: self.pos
+            size: self.size
+    Label:
+        text: "Waiting for camera signal..."
+        font_name: "Display"
+        font_size: 18
+        color: DIM
+        pos_hint: {"center_x": 0.5, "center_y": 0.7}
+        size_hint: None, None
+        size: 400, 30
+    ParkingGuides:
+        pos_hint: {"x": 0, "y": 0}
+    BoxLayout:
+        size_hint: None, None
+        size: 168, 40
+        pos_hint: {"center_x": 0.5, "top": 0.96}
+        padding: 14, 0
+        spacing: 8
+        canvas.before:
+            Color:
+                rgba: DANGER
+            RoundedRectangle:
+                pos: self.pos
+                size: self.size
+                radius: [20]
+        IconLabel:
+            icon: "camera_rear"
+            font_size: 22
+            size_hint_x: None
+            width: 26
+        Label:
+            text: "REVERSE"
+            font_name: "Display"
+            bold: True
+            font_size: 20
+            color: TEXT
+
+
+# ================= Startup =================
+
+<Splash@Overlay>:
+    fade: 0.5
+    glow: 0
+    canvas.before:
+        Color:
+            rgba: BACKGROUND
+        Rectangle:
+            pos: self.pos
+            size: self.size
+        Color:
+            rgba: with_alpha(app.accent, self.glow)
+        Rectangle:
+            texture: theme.glow_texture()
+            pos: self.center_x - 360, self.center_y - 330
+            size: 720, 720
+    Label:
+        id: title
+        text: "C I V I C"
+        font_name: "Display"
+        bold: True
+        font_size: 80
+        color: TEXT
+        opacity: 0
+        pos_hint: {"center_x": 0.5, "center_y": 0.56}
+    Widget:
+        id: line
+        size_hint: None, None
+        size: 0, 3
+        pos_hint: {"center_x": 0.5, "center_y": 0.43}
+        canvas:
+            Color:
+                rgba: app.accent
+            Rectangle:
+                pos: self.pos
+                size: self.size
+    Label:
+        id: subtitle
+        text: "C A R    P C"
+        font_name: "Display"
+        font_size: 18
+        color: MUTED
+        opacity: 0
+        pos_hint: {"center_x": 0.5, "center_y": 0.36}

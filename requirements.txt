@@ -2,4 +2,5 @@ kivy[base]==2.3.1
 pyvalhalla==3.9.0   # offline routing; wheels need Python 3.12+
 numpy               # fast map drawing
 websocket-client    # Spotify events from go-librespot
+pillow              # album cover colors and blur
 osmium==4.3.1       # only used by tools/build_map_data.py
