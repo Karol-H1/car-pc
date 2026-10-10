@@ -20,7 +20,7 @@ The owner is new to Python UI work and wants explanations as we go, not just cod
 ## Features the software must deliver
 1. **Navigation** (changed Oct 2026): **Google Maps from the phone is the main map**, mirrored with scrcpy onto the Home page's map card and a full-size Map page (phone on USB; Wi-Fi via hotspot possible later). The offline map (custom Kivy map + Valhalla) stays as the fallback when no phone is connected. Android Auto ruled out: Pi options are dead or fragile and would replace this UI.
 2. **Spotify**: Spotify Connect client on the Pi; UI shows track/artist, with play/pause/skip controls.
-3. **Phone calls**: Bluetooth hands-free; UI shows caller name (needs phone contact sharing/PBAP) or number, plus answer/hang up.
+3. **Phone calls**: Bluetooth hands-free; UI shows caller name (needs phone contact sharing/PBAP) or number, plus answer/hang up. *(Oct 2026: calling, contacts, recents and incoming-call detection already work through the phone's USB debugging link (phone.py); call audio still stays on the phone until Bluetooth hands-free + USB audio adapter/mic are set up.)*
 4. **Audio management**: pause (or duck) music when a call starts, resume when it ends.
 5. **Rear camera**: auto-switch to the camera feed when reverse is engaged (GPIO high), switch back when it drops.
 6. **Front dashcam**: loop recording with auto-overwrite, plus a manual dashcam view screen. Storage budget needs thought (roughly 3-6GB/hour at 1080p).
