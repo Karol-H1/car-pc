@@ -2,6 +2,7 @@
 #:import theme theme
 #:import ICONS theme.ICONS
 #:import with_alpha theme.with_alpha
+#:import Window kivy.core.window.Window
 #:set BACKGROUND theme.BACKGROUND
 #:set GLASS theme.GLASS
 #:set GLASS_STRONG theme.GLASS_STRONG
@@ -283,20 +284,25 @@ FloatLayout:
                 active: screens.current == "home"
                 on_release: app.switch_to("home")
             RailButton:
+                icon: "map"
+                caption: "MAP"
+                active: screens.current == "map"
+                on_release: app.switch_to("map")
+            RailButton:
                 icon: "library_music"
                 caption: "MUSIC"
                 active: screens.current == "music"
                 on_release: app.switch_to("music")
             RailButton:
+                icon: "phone"
+                caption: "PHONE"
+                active: screens.current == "phone"
+                on_release: app.switch_to("phone")
+            RailButton:
                 icon: "videocam"
                 caption: "DASHCAM"
                 active: screens.current == "dashcam"
                 on_release: app.switch_to("dashcam")
-            RailButton:
-                icon: "map"
-                caption: "MAP"
-                active: screens.current == "map"
-                on_release: app.switch_to("map")
             Widget:
 
         BoxLayout:
@@ -365,15 +371,23 @@ FloatLayout:
                 id: screens
                 HomeScreen:
                     name: "home"
-                MusicScreen:
-                    name: "music"
-                DashcamScreen:
-                    name: "dashcam"
                 MapScreen:
                     name: "map"
+                MusicScreen:
+                    name: "music"
+                PhoneScreen:
+                    name: "phone"
+                DashcamScreen:
+                    name: "dashcam"
 
-    CallOverlay:
+    # Incoming/active call: covers exactly the Home page's music card, so a Google Maps or offline
+    # map route keeps showing beside it.
+    CallPopup:
         shown: app.call_state != "none"
+        opacity: 0
+        size_hint: None, None
+        size: (Window.width - 102) / 2.4, Window.height - 56
+        pos: Window.width - 12 - self.width, 12
     ReverseOverlay:
         shown: app.reversing
     Splash:
@@ -526,17 +540,15 @@ FloatLayout:
                     color: app.accent
                     on_release: navmap.recenter()
 
-        # ----- Music and phone -----
+        # ----- Music (a call pops up right over this card) -----
         BoxLayout:
             orientation: "vertical"
-            spacing: 12
 
             # Now playing, on a blurred copy of the album cover
             BoxLayout:
                 orientation: "vertical"
-                size_hint_y: 0.7
-                padding: 14, 12, 14, 8
-                spacing: 6
+                padding: 14, 14, 14, 10
+                spacing: 8
                 canvas.before:
                     Color:
                         rgba: (1, 1, 1, 0.6) if app.backdrop_texture else GLASS
@@ -566,23 +578,24 @@ FloatLayout:
                         color: app.accent
                         size_hint_x: None
                         width: 21
-                BoxLayout:
-                    spacing: 12
+                AnchorLayout:
                     CoverArt:
                         size_hint: None, None
-                        size: 88, 88
-                        pos_hint: {"center_y": 0.5}
-                    BoxLayout:
-                        orientation: "vertical"
-                        padding: 0, 10
-                        Txt:
-                            text: app.track_title
-                            font_size: 19
-                            bold: True
-                        Txt:
-                            text: app.track_artist
-                            font_size: 15
-                            color: MUTED
+                        size: [min(self.parent.width, self.parent.height) - 8] * 2
+                Txt:
+                    text: app.track_title
+                    font_size: 20
+                    bold: True
+                    halign: "center"
+                    size_hint_y: None
+                    height: 30
+                Txt:
+                    text: app.track_artist
+                    font_size: 15
+                    color: MUTED
+                    halign: "center"
+                    size_hint_y: None
+                    height: 22
                 TimeRow:
                 BoxLayout:
                     size_hint_y: None
@@ -601,38 +614,6 @@ FloatLayout:
                         icon: "skip_next"
                         on_release: app.next_track()
 
-            # Phone
-            Card:
-                size_hint_y: 0.3
-                padding: 14
-                spacing: 12
-                IconLabel:
-                    icon: "phone"
-                    size_hint_x: None
-                    width: 46
-                    color: app.accent
-                    canvas.before:
-                        Color:
-                            rgba: with_alpha(app.accent, 0.16)
-                        Ellipse:
-                            pos: self.center_x - 23, self.center_y - 23
-                            size: 46, 46
-                BoxLayout:
-                    orientation: "vertical"
-                    Eyebrow:
-                        text: "PHONE"
-                    Txt:
-                        text: app.phone_status
-                        font_size: 16
-                AnchorLayout:
-                    size_hint_x: None
-                    width: 48
-                    RoundButton:
-                        icon: "call"
-                        fill: GOOD
-                        size_hint: None, None
-                        size: 44, 44
-                        on_release: app.start_fake_call()
 
 
 # ================= Music (full screen) =================
@@ -849,61 +830,84 @@ FloatLayout:
 
 # ================= Incoming / active call =================
 
-<CallOverlay@Overlay>:
+<CallPopup@Panel>:
     canvas.before:
         Color:
-            rgba: 0.02, 0.03, 0.045, 0.96
-        Rectangle:
+            rgba: 0, 0, 0, 0.5
+        BoxShadow:
             pos: self.pos
             size: self.size
+            offset: 0, -4
+            blur_radius: 26
+            border_radius: [18] * 4
         Color:
-            rgba: with_alpha(GOOD, 0.22)
+            rgba: 0.04, 0.06, 0.07, 0.98
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [18]
+        Color:
+            rgba: with_alpha(GOOD, 0.20)
         Rectangle:
             texture: theme.glow_texture()
-            pos: self.center_x - 330, self.y + self.height * 0.62 - 330
-            size: 660, 660
+            pos: self.center_x - 200, self.y + self.height * 0.66 - 200
+            size: 400, 400
+        Color:
+            rgba: with_alpha(GOOD, 0.35)
+        Line:
+            rounded_rectangle: (self.x, self.y, self.width, self.height, 18)
+            width: 1.2
+    Label:
+        text: "INCOMING CALL" if app.call_state == "incoming" else "ON CALL"
+        font_name: "Display"
+        bold: True
+        font_size: 14
+        color: GOOD
+        size_hint: 1, None
+        height: 20
+        pos_hint: {"center_x": 0.5, "top": 0.96}
     PulseRings:
         running: root.shown and app.call_state == "incoming"
-        inner: 62
+        inner: 46
         size_hint: None, None
-        size: 340, 340
-        pos_hint: {"center_x": 0.5, "center_y": 0.62}
+        size: 220, 220
+        pos_hint: {"center_x": 0.5, "center_y": 0.66}
     Label:
         text: (app.caller_name[:1] or "?").upper()
         font_name: "Display"
         bold: True
-        font_size: 58
+        font_size: 44
         color: TEXT
         size_hint: None, None
-        size: 120, 120
-        pos_hint: {"center_x": 0.5, "center_y": 0.62}
+        size: 92, 92
+        pos_hint: {"center_x": 0.5, "center_y": 0.66}
         canvas.before:
             Color:
                 rgba: theme.shift_hue(GOOD, 0, value=0.55)
             Ellipse:
                 pos: self.pos
                 size: self.size
-    Label:
+    Txt:
         text: app.caller_name
-        font_size: 34
+        font_size: 24
         bold: True
-        color: TEXT
-        size_hint: 1, None
-        height: 48
-        pos_hint: {"center_x": 0.5, "center_y": 0.36}
+        halign: "center"
+        size_hint: 0.9, None
+        height: 34
+        pos_hint: {"center_x": 0.5, "center_y": 0.37}
     Label:
-        text: "Incoming call" if app.call_state == "incoming" else "On call  ·  " + app.call_timer
+        text: app.caller_detail if app.call_state == "incoming" else app.call_timer
         font_name: "Display"
-        font_size: 20
-        color: GOOD if app.call_state == "active" else MUTED
+        font_size: 18
+        color: MUTED
         size_hint: 1, None
-        height: 30
-        pos_hint: {"center_x": 0.5, "center_y": 0.28}
+        height: 26
+        pos_hint: {"center_x": 0.5, "center_y": 0.29}
     BoxLayout:
         size_hint: None, None
-        size: (76 * 2 + 140, 76) if app.call_state == "incoming" else (76, 76)
+        size: (64 * 2 + 64, 64) if app.call_state == "incoming" else (64, 64)
         pos_hint: {"center_x": 0.5, "y": 0.06}
-        spacing: 140 if app.call_state == "incoming" else 0
+        spacing: 64 if app.call_state == "incoming" else 0
         RoundButton:
             icon: "call_end"
             fill: DANGER
@@ -917,6 +921,194 @@ FloatLayout:
             opacity: 1 if app.call_state == "incoming" else 0
             disabled: app.call_state != "incoming"
             on_release: app.answer_call()
+
+
+# ================= Phone =================
+
+# One row in the Recents or Contacts list.
+<CallRow@ButtonBehavior+BoxLayout>:
+    name: ""
+    number: ""
+    detail: ""
+    icon: "person"
+    icon_color: MUTED
+    size_hint_y: None
+    height: 58
+    padding: 10, 4, 6, 4
+    spacing: 12
+    on_release: app.place_call(self.number, self.name)
+    canvas.before:
+        Color:
+            rgba: 1, 1, 1, (0.08 if self.state == "down" else 0)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [12]
+    IconLabel:
+        icon: root.icon
+        color: root.icon_color
+        font_size: 20
+        size_hint_x: None
+        width: 40
+        canvas.before:
+            Color:
+                rgba: 1, 1, 1, 0.06
+            Ellipse:
+                pos: self.center_x - 20, self.center_y - 20
+                size: 40, 40
+    BoxLayout:
+        orientation: "vertical"
+        padding: 0, 6
+        Txt:
+            text: root.name or root.number
+            font_size: 17
+        Txt:
+            text: root.detail
+            font_size: 13
+            color: MUTED
+    IconLabel:
+        icon: "call"
+        color: GOOD
+        font_size: 22
+        size_hint_x: None
+        width: 36
+
+<TabButton@ButtonBehavior+Label>:
+    active: False
+    font_name: "Display"
+    bold: True
+    font_size: 15
+    color: BACKGROUND if self.active else MUTED
+    canvas.before:
+        Color:
+            rgba: app.accent if self.active else (1, 1, 1, 0.06)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [self.height / 2]
+
+<KeyButton@ButtonBehavior+Label>:
+    font_name: "Display"
+    bold: True
+    font_size: 28
+    color: TEXT
+    on_release: app.dial_press(self.text)
+    canvas.before:
+        Color:
+            rgba: 1, 1, 1, (0.16 if self.state == "down" else 0.05)
+        Ellipse:
+            pos: self.center_x - min(self.size) / 2, self.center_y - min(self.size) / 2
+            size: min(self.size), min(self.size)
+
+<PhoneScreen>:
+    BoxLayout:
+        padding: 2, 4, 12, 12
+        spacing: 12
+
+        # ----- Recents / Contacts -----
+        Card:
+            size_hint_x: 1.4
+            orientation: "vertical"
+            padding: 12
+            spacing: 10
+            BoxLayout:
+                size_hint_y: None
+                height: 38
+                spacing: 8
+                TabButton:
+                    text: "RECENTS"
+                    active: app.phone_tab == "recents"
+                    on_release: app.phone_tab = "recents"
+                TabButton:
+                    text: "CONTACTS"
+                    active: app.phone_tab == "contacts"
+                    on_release: app.phone_tab = "contacts"
+            FloatLayout:
+                RecycleView:
+                    pos_hint: {"x": 0, "y": 0}
+                    data: app.recent_rows if app.phone_tab == "recents" else app.contact_rows
+                    viewclass: "CallRow"
+                    bar_width: 4
+                    scroll_type: ["bars", "content"]
+                    RecycleBoxLayout:
+                        default_size: None, 58
+                        default_size_hint: 1, None
+                        size_hint_y: None
+                        height: self.minimum_height
+                        orientation: "vertical"
+                        spacing: 2
+                Label:
+                    text: app.phone_list_message
+                    opacity: 1 if app.phone_list_message else 0
+                    font_size: 15
+                    color: MUTED
+                    halign: "center"
+                    text_size: self.width - 40, None
+                    pos_hint: {"center_x": 0.5, "center_y": 0.5}
+
+        # ----- Keypad -----
+        Card:
+            orientation: "vertical"
+            padding: 14, 12
+            spacing: 8
+            BoxLayout:
+                size_hint_y: None
+                height: 46
+                Label:
+                    text: app.dial_number or "Enter a number"
+                    font_name: "Display"
+                    bold: bool(app.dial_number)
+                    font_size: 28 if app.dial_number else 18
+                    color: TEXT if app.dial_number else DIM
+                    text_size: self.size
+                    halign: "center"
+                    valign: "middle"
+                    shorten: True
+                    shorten_from: "left"
+                IconButton:
+                    icon: "backspace"
+                    font_size: 24
+                    color: MUTED
+                    size_hint_x: None
+                    width: 46
+                    on_release: app.dial_number = app.dial_number[:-1]
+            GridLayout:
+                cols: 3
+                spacing: 6
+                KeyButton:
+                    text: "1"
+                KeyButton:
+                    text: "2"
+                KeyButton:
+                    text: "3"
+                KeyButton:
+                    text: "4"
+                KeyButton:
+                    text: "5"
+                KeyButton:
+                    text: "6"
+                KeyButton:
+                    text: "7"
+                KeyButton:
+                    text: "8"
+                KeyButton:
+                    text: "9"
+                KeyButton:
+                    text: "*"
+                KeyButton:
+                    text: "0"
+                KeyButton:
+                    text: "#"
+            AnchorLayout:
+                size_hint_y: None
+                height: 64
+                RoundButton:
+                    icon: "call"
+                    fill: GOOD
+                    icon_color: TEXT
+                    size_hint: None, None
+                    size: 58, 58
+                    on_release: app.place_call(app.dial_number, "")
 
 
 # ================= Reverse camera =================

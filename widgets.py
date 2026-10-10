@@ -72,6 +72,17 @@ class Overlay(Shown, FloatLayout):
         return True
 
 
+class Panel(Shown, FloatLayout):
+    """A pop-up card over part of the screen (the call card). While shown it takes the touches that
+    land on it, so nothing underneath reacts, and lets everything else through."""
+
+    def on_touch_down(self, touch):
+        if not self.shown or not self.collide_point(*touch.pos):
+            return False
+        super().on_touch_down(touch)
+        return True
+
+
 class IconButton(ButtonBehavior, Label):
     icon = StringProperty("")
 

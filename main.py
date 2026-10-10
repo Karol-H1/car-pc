@@ -20,14 +20,15 @@ from kivy.app import App  # noqa: E402
 from kivy.clock import Clock  # noqa: E402
 from kivy.core.image import Image as CoreImage  # noqa: E402
 from kivy.core.window import Window  # noqa: E402
-from kivy.properties import (BooleanProperty, ColorProperty, NumericProperty,  # noqa: E402
-                             ObjectProperty, OptionProperty, StringProperty)
+from kivy.properties import (BooleanProperty, ColorProperty, ListProperty,  # noqa: E402
+                             NumericProperty, ObjectProperty, OptionProperty, StringProperty)
 from kivy.uix.screenmanager import Screen, SlideTransition  # noqa: E402
 
 import artwork  # noqa: E402
 import geo  # noqa: E402
 import mirror  # noqa: E402
 import navmap  # noqa: E402,F401  (registers NavMap so headunit.kv can use it)
+import phone  # noqa: E402
 import theme  # noqa: E402
 import widgets  # noqa: E402,F401  (registers the custom widgets for headunit.kv)
 from demo_drive import DemoDrive  # noqa: E402
@@ -41,7 +42,7 @@ else:
 Window.clearcolor = theme.BACKGROUND
 
 MPH_PER_MPS = 2.23694
-SCREEN_ORDER = ["home", "music", "dashcam", "map"]  # top to bottom on the side rail
+SCREEN_ORDER = ["home", "map", "music", "phone", "dashcam"]  # top to bottom on the side rail
 MIRROR_RETRY_SECONDS = 10  # after the mirror fails, wait this long before trying again by itself
 WHERE_TO = ("touch_app", "Where to?", "Hold the map to set a destination")
 MIRROR_MESSAGES = {
@@ -62,6 +63,10 @@ class HomeScreen(Screen):
 
 
 class MusicScreen(Screen):
+    pass
+
+
+class PhoneScreen(Screen):
     pass
 
 
@@ -108,10 +113,15 @@ class HeadUnitApp(App):
     wifi_on = BooleanProperty(True)
 
     # Phone and reverse camera
-    phone_status = StringProperty("Phone connected")
     call_state = OptionProperty("none", options=["none", "incoming", "active"])
     caller_name = StringProperty("")
+    caller_detail = StringProperty("")  # the number, or "Mobile", under the caller's name
     call_timer = StringProperty("0:00")
+    phone_tab = StringProperty("recents")
+    recent_rows = ListProperty()     # Recents list on the Phone page
+    contact_rows = ListProperty()    # Contacts list on the Phone page
+    phone_list_message = StringProperty("Loading...")
+    dial_number = StringProperty("")
     reversing = BooleanProperty(False)
 
     # Google Maps from the phone (mirroring)
@@ -138,6 +148,12 @@ class HeadUnitApp(App):
 
         self.was_playing_before_call = False
         self.call_started = None
+        self.fake_call = False          # a test call from the C key, not a real one
+        self.outgoing_name = ""         # who we just dialed from the Phone page
+        self.names_by_number = {}       # contact lookup for caller names
+        self.phone = phone.Phone(lambda state, number: Clock.schedule_once(
+            lambda dt: self.phone_call_changed(state, number)))
+        self.refresh_phone_lists()
 
         self.mirror = mirror.Mirror(lambda message: Clock.schedule_once(
             lambda dt: self.mirror_stopped(message)))
@@ -191,6 +207,8 @@ class HeadUnitApp(App):
             self.stop_mirror()  # it's sized and placed for the page we're leaving
         self.screens.current = name
         Clock.schedule_once(self.check_phone, 0.35)  # after the slide finishes
+        if name == "phone":
+            self.refresh_phone_lists()
 
     def reverse_on(self):
         self.reversing = True
@@ -203,6 +221,8 @@ class HeadUnitApp(App):
             self.reversing = not self.reversing
         elif codepoint == "d":
             self.start_demo_drive()
+        elif codepoint == "c":
+            self.start_fake_call()
 
     # ---- Navigation ----
 
@@ -361,9 +381,8 @@ class HeadUnitApp(App):
         return None
 
     def mirror_allowed(self):
-        """Only on Home and Map, and never over the reverse camera or a call."""
-        return (self.mirror_area(self.screens.current) is not None and not self.reversing
-                and self.call_state == "none")
+        """Only on Home and Map, and never over the reverse camera."""
+        return self.mirror_area(self.screens.current) is not None and not self.reversing
 
     def check_phone(self, *args):
         """Every couple of seconds on Home or Map: is the phone ready to mirror?"""
@@ -422,44 +441,136 @@ class HeadUnitApp(App):
         else:
             Clock.schedule_once(self.check_phone, 0.5)
 
-    def on_call_state(self, _, state):
-        if state != "none":
-            self.stop_mirror(paused=True)
-        else:
-            Clock.schedule_once(self.check_phone, 0.5)
-
     def on_stop(self):
         self.mirror.stop()  # don't leave the mirror window behind when the app quits
 
-    # ---- Calls (fake for now) ----
+    # ---- Phone (through the phone's USB debugging link for now) ----
 
-    def start_fake_call(self):
-        # Pause the music for the call, but remember whether it was playing.
-        self.was_playing_before_call = self.is_playing
-        if self.is_playing:
-            self.spotify.pause()
-        self.caller_name = "Mom"
-        self.phone_status = "Incoming: Mom"
-        self.call_state = "incoming"
+    def refresh_phone_lists(self):
+        def load():
+            contacts, recents = phone.load_contacts(), phone.load_recent_calls()
+            Clock.schedule_once(lambda dt: self.show_phone_lists(contacts, recents))
+        threading.Thread(target=load, daemon=True).start()
 
-    def answer_call(self):
-        self.call_state = "active"
-        self.phone_status = f"On call: {self.caller_name}"
-        self.call_started = datetime.now()
-        self.call_timer = "0:00"
-        Clock.schedule_interval(self.tick_call, 1)
+    def show_phone_lists(self, contacts, recents):
+        if contacts is None or recents is None:
+            self.phone_list_message = "Plug your phone in by USB to see your contacts and calls."
+            return
+        self.phone_list_message = ""
+        self.names_by_number = {phone.match_key(c.number): c.name for c in contacts}
+        self.contact_rows = [{"name": c.name, "number": c.number,
+                              # contacts saved under just their number don't need it twice
+                              "detail": "" if phone.match_key(c.name) == phone.match_key(c.number)
+                              else format_number(c.number),
+                              "icon": "person", "icon_color": theme.MUTED} for c in contacts]
+        styles = {"missed": ("call_missed", theme.DANGER), "declined": ("call_missed", theme.DANGER),
+                  "blocked": ("call_missed", theme.DIM), "outgoing": ("call_made", theme.ACCENT)}
+        rows = []
+        for call in recents:
+            icon, color = styles.get(call.kind, ("call_received", theme.GOOD))
+            name = call.name or self.names_by_number.get(phone.match_key(call.number), "")
+            rows.append({"name": name or format_number(call.number), "number": call.number,
+                         "detail": f"{call.kind.capitalize()}  ·  {format_when(call.when)}",
+                         "icon": icon, "icon_color": color})
+        self.recent_rows = rows
+
+    def name_for(self, number):
+        return self.names_by_number.get(phone.match_key(number), "")
+
+    def dial_press(self, key):
+        if len(self.dial_number) < 20:
+            self.dial_number += key
+
+    def place_call(self, number, name):
+        if not number:
+            return
+        self.outgoing_name = name or self.name_for(number) or format_number(number)
+        self.dial_number = ""
+        self.phone.call(number)
+
+    def phone_call_changed(self, state, number):
+        """The phone started ringing, picked up / dialed out, or hung up."""
+        if self.fake_call:
+            return
+        if state == "ringing":
+            name = self.name_for(number)
+            self.caller_name = name or (format_number(number) if number else "Unknown caller")
+            self.caller_detail = format_number(number) if name else "Incoming call"
+            self.call_state = "incoming"
+        elif state == "offhook":
+            if self.call_state == "none":  # dialed out, from here or from the phone itself
+                self.caller_name = self.outgoing_name or self.name_for(number) or "On a call"
+            self.call_state = "active"
+        else:
+            self.call_state = "none"
+            self.outgoing_name = ""
+
+    def on_call_state(self, _, state):
+        started = state != "none" and self.call_started is None
+        if started:
+            # Pause the music for the call, but remember whether it was playing.
+            self.was_playing_before_call = self.is_playing
+            if self.is_playing:
+                self.spotify.pause()
+            self.call_started = False  # ringing, not talking yet
+            if self.screens.current == "map":
+                self.switch_to("home")  # the call card goes beside the map, not over it
+        if state == "active" and not self.call_started:
+            self.call_started = datetime.now()
+            self.call_timer = "0:00"
+            Clock.schedule_interval(self.tick_call, 1)
+        if state == "none" and self.call_started is not None:
+            self.call_started = None
+            if self.was_playing_before_call:
+                self.spotify.resume()
+            self.refresh_phone_lists()  # the call shows up in Recents
 
     def tick_call(self, dt):
-        if self.call_state != "active":
+        if self.call_state != "active" or not self.call_started:
             return False
         seconds = int((datetime.now() - self.call_started).total_seconds())
         self.call_timer = f"{seconds // 60}:{seconds % 60:02d}"
 
+    def answer_call(self):
+        if not self.fake_call:
+            self.phone.answer()
+        self.call_state = "active"
+
     def end_call(self):
-        if self.was_playing_before_call:
-            self.spotify.resume()
+        if self.fake_call:
+            self.fake_call = False
+        else:
+            self.phone.hang_up()
         self.call_state = "none"
-        self.phone_status = "Phone connected"
+
+    def start_fake_call(self):
+        """A pretend incoming call (C key), for trying the call card without a phone."""
+        self.fake_call = True
+        self.caller_name = "Mom"
+        self.caller_detail = "Mobile"
+        self.call_state = "incoming"
+
+
+def format_number(number):
+    """US numbers as (508) 555-0100; anything else unchanged."""
+    digits = "".join(c for c in number if c.isdigit())
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    if len(digits) == 10:
+        return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+    return number
+
+
+def format_when(when):
+    """Today 3:42 PM / Yesterday / Tuesday / Oct 3."""
+    days = (datetime.now().date() - when.date()).days
+    if days == 0:
+        return when.strftime("%I:%M %p").lstrip("0")
+    if days == 1:
+        return "Yesterday"
+    if days < 7:
+        return when.strftime("%A")
+    return f"{when:%b} {when.day}"
 
 
 if __name__ == "__main__":
