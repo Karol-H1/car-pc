@@ -18,7 +18,7 @@ The owner is new to Python UI work and wants explanations as we go, not just cod
 - v1 enclosure is cardboard (bench use only); a 3D-printed case comes later
 
 ## Features the software must deliver
-1. **Navigation**: native offline maps for normal driving (no lag). **On-demand** phone mirroring (scrcpy) to show Google Maps for live traffic, launched only when requested and closed afterward.
+1. **Navigation** (changed Oct 2026): **Google Maps from the phone is the main map**, mirrored with scrcpy onto the Home page's map card and a full-size Map page (phone on USB; Wi-Fi via hotspot possible later). The offline map (custom Kivy map + Valhalla) stays as the fallback when no phone is connected. Android Auto ruled out: Pi options are dead or fragile and would replace this UI.
 2. **Spotify**: Spotify Connect client on the Pi; UI shows track/artist, with play/pause/skip controls.
 3. **Phone calls**: Bluetooth hands-free; UI shows caller name (needs phone contact sharing/PBAP) or number, plus answer/hang up.
 4. **Audio management**: pause (or duck) music when a call starts, resume when it ends.
