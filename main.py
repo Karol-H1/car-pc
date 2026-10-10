@@ -1,4 +1,5 @@
 import threading
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -40,12 +41,13 @@ else:
 Window.clearcolor = theme.BACKGROUND
 
 MPH_PER_MPS = 2.23694
-SCREEN_ORDER = ["home", "music", "dashcam", "traffic"]  # top to bottom on the side rail
+SCREEN_ORDER = ["home", "music", "dashcam", "map"]  # top to bottom on the side rail
+MIRROR_RETRY_SECONDS = 10  # after the mirror fails, wait this long before trying again by itself
 WHERE_TO = ("touch_app", "Where to?", "Hold the map to set a destination")
 MIRROR_MESSAGES = {
     "checking": "Looking for your phone...",
     "no-adb": "Phone mirroring isn't installed here (it runs on the Pi).",
-    "missing": "Plug your Android phone in by USB to see live traffic.",
+    "missing": "Plug your Android phone in by USB for Google Maps.\nUntil then, Home uses the offline map.",
     "unauthorized": "Unlock your phone and tap Allow on the \"USB debugging\" prompt.",
     "ready": "Opening Google Maps on your phone...",
     "running": "Showing Google Maps from your phone",
@@ -67,7 +69,7 @@ class DashcamScreen(Screen):
     pass
 
 
-class TrafficScreen(Screen):
+class MapScreen(Screen):
     pass
 
 
@@ -112,8 +114,9 @@ class HeadUnitApp(App):
     call_timer = StringProperty("0:00")
     reversing = BooleanProperty(False)
 
-    # Live traffic (phone mirroring)
+    # Google Maps from the phone (mirroring)
     mirror_state = StringProperty("checking")
+    google_on_home = BooleanProperty(False)  # Google Maps is covering the Home page's map card
     mirror_message = StringProperty(MIRROR_MESSAGES["checking"])
 
     def on_start(self):
@@ -139,6 +142,8 @@ class HeadUnitApp(App):
         self.mirror = mirror.Mirror(lambda message: Clock.schedule_once(
             lambda dt: self.mirror_stopped(message)))
         self.checking_phone = False
+        self.mirror_screen = None       # the page the mirror is showing on
+        self.mirror_retry_after = 0.0   # time.monotonic() before which not to retry after a failure
         Clock.schedule_interval(self.check_phone, 2)
 
         self.tick_clock()
@@ -182,7 +187,10 @@ class HeadUnitApp(App):
         going_down = SCREEN_ORDER.index(name) > SCREEN_ORDER.index(self.screens.current)
         self.screens.transition = SlideTransition(direction="up" if going_down else "down",
                                                   duration=0.28)
+        if self.mirror.running and name != self.mirror_screen:
+            self.stop_mirror()  # it's sized and placed for the page we're leaving
         self.screens.current = name
+        Clock.schedule_once(self.check_phone, 0.35)  # after the slide finishes
 
     def reverse_on(self):
         self.reversing = True
@@ -338,23 +346,31 @@ class HeadUnitApp(App):
     def previous_track(self):
         self.spotify.previous()
 
-    # ---- Live traffic (phone mirroring) ----
+    # ---- Google Maps from the phone (mirroring) ----
 
     def set_mirror_state(self, state, detail=""):
         self.mirror_state = state
         self.mirror_message = MIRROR_MESSAGES[state].format(detail=detail)
 
+    def mirror_area(self, screen):
+        """The widget Google Maps covers on a page: Home's map card or the whole Map page."""
+        if screen == "home":
+            return self.screens.get_screen("home").ids.map_card
+        if screen == "map":
+            return self.screens.get_screen("map").ids.mirror_area
+        return None
+
     def mirror_allowed(self):
-        """Only while the Traffic page is showing, and never over the reverse camera or a call."""
-        return (self.screens.current == "traffic" and not self.reversing
+        """Only on Home and Map, and never over the reverse camera or a call."""
+        return (self.mirror_area(self.screens.current) is not None and not self.reversing
                 and self.call_state == "none")
 
     def check_phone(self, *args):
-        """Every couple of seconds while the Traffic page is open: is the phone ready to mirror?"""
+        """Every couple of seconds on Home or Map: is the phone ready to mirror?"""
         if not self.mirror_allowed() or self.mirror.running or self.checking_phone:
             return
-        if self.mirror_state == "error":
-            return  # wait for the Retry button instead of retrying forever
+        if self.mirror_state == "error" and time.monotonic() < self.mirror_retry_after:
+            return  # don't hammer a failing phone; Try again skips the wait
         self.checking_phone = True
 
         def check():
@@ -370,22 +386,33 @@ class HeadUnitApp(App):
             self.set_mirror_state(status)
 
     def start_mirror(self):
-        area = self.screens.get_screen("traffic").ids.mirror_area
+        self.mirror_screen = self.screens.current
+        area = self.mirror_area(self.mirror_screen)
+        # The phone's video comes in multiples of 8 pixels, so size the window to match and center
+        # it in the area (otherwise thin black bars show at the edges).
+        width, height = int(area.width) // 8 * 8, int(area.height) // 8 * 8
         x, y = area.to_window(*area.pos)
-        top = Window.height - (y + area.height)  # scrcpy counts from the top of the screen
+        x += (area.width - width) / 2
+        top = Window.height - (y + area.height) + (area.height - height) / 2  # counted from the top
         self.set_mirror_state("ready")
-        self.mirror.start(int(x), int(top), int(area.width), int(area.height))
+        self.mirror.start(int(x), int(top), width, height)
         self.set_mirror_state("running")
+        self.google_on_home = self.mirror_screen == "home"
 
     def stop_mirror(self, paused=False):
         if self.mirror.running:
             self.mirror.stop()
             self.set_mirror_state("paused" if paused else "checking")
+        self.google_on_home = False
 
     def mirror_stopped(self, message):
+        # Unplugged phone or an error: Home falls back to the offline map right away.
+        self.google_on_home = False
+        self.mirror_retry_after = time.monotonic() + MIRROR_RETRY_SECONDS
         self.set_mirror_state("error", message)
 
     def retry_mirror(self):
+        self.mirror_retry_after = 0.0
         self.set_mirror_state("checking")
         self.check_phone()
 

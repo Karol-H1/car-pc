@@ -237,6 +237,7 @@ class NavMap(Widget):
     mpp = NumericProperty(DRIVING_MPP)  # zoom, in meters per pixel (smaller = closer)
     radius = NumericProperty(18)       # rounded corners
     accent = ColorProperty(theme.ACCENT)  # route and car color
+    interactive = BooleanProperty(True)   # False while something else (Google Maps) covers the map
 
     __events__ = ("on_destination",)
 
@@ -547,6 +548,8 @@ class NavMap(Widget):
     # ---------- Touch: drag to pan, pinch or scroll to zoom, hold to pick a destination ----------
 
     def on_touch_down(self, touch):
+        if not self.interactive:
+            return False
         if not self.collide_point(*touch.pos):
             return super().on_touch_down(touch)
         if touch.is_mouse_scrolling:

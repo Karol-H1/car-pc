@@ -37,7 +37,7 @@ _CODES = {
     "fork_left": "eba0", "fork_right": "ebac", "gps_fixed": "e1b3", "gps_not_fixed": "e1b4",
     "graphic_eq": "e1b8", "headphones": "f01f", "home": "e88a", "library_music": "e030",
     "location_on": "e0c8", "map": "e55b", "merge": "eb98", "mic": "e029", "music_note": "e405",
-    "my_location": "e55c", "navigation": "e55d", "near_me": "e569", "pause": "e034", "person": "e7fd",
+    "my_location": "e55c", "navigation": "e55d", "near_me": "e569", "pause": "e034", "person": "e7fd", "phone_android": "e324",
     "phone": "e0cd", "play_arrow": "e037", "ramp_left": "eb9c", "ramp_right": "eb96", "remove": "e15b",
     "roundabout_left": "eb99", "roundabout_right": "eba3", "sd_storage": "e1c2", "settings": "e8b8",
     "skip_next": "e044", "skip_previous": "e045", "speed": "e9e4", "sports_score": "f06e",

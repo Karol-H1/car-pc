@@ -1,15 +1,16 @@
-"""Live traffic: Google Maps from the phone, mirrored onto the head unit with scrcpy.
+"""Google Maps from the phone, mirrored onto the head unit with scrcpy.
 
-scrcpy makes a separate virtual screen on the phone, sized for the head unit, starts Google Maps on
-it, and shows it in a borderless window placed over the Traffic page, so the phone's own screen stays
-free. Needs an Android 10+ phone plugged in by USB with USB debugging allowed, and scrcpy 3+ on the Pi.
+scrcpy makes a separate virtual screen on the phone, sized for the spot it fills on the head unit
+(the Home page's map card, or the whole Map page), starts Google Maps on it, and shows it in a
+borderless window placed exactly over that spot, so the phone's own screen stays free. Needs an
+Android 10+ phone plugged in by USB with USB debugging allowed, and scrcpy 3+ on the Pi.
 Nothing in here touches Kivy; callers hand results to the main thread themselves.
 """
 import subprocess
 import threading
 
 MAPS_APP = "com.google.android.apps.maps"
-WINDOW_TITLE = "Live traffic"  # system/labwc-rules.xml keeps this window on top
+WINDOW_TITLE = "Live traffic"  # system/labwc-rules.xml keeps this window on top (by this title)
 SCREEN_DPI = 160               # how big Google Maps draws its buttons and text
 
 
@@ -51,6 +52,10 @@ class Mirror:
             ["scrcpy",
              f"--new-display={width}x{height}/{SCREEN_DPI}", f"--start-app={MAPS_APP}",
              "--no-vd-system-decorations",  # no phone status bar or navigation buttons
+             # Closing the virtual screen (switching pages) moves Maps back to the phone instead of
+             # closing it, so navigation carries on; the next mirror picks it up again.
+             "--no-vd-destroy-content",
+             "--display-ime-policy=local",  # the keyboard for Maps search shows on the head unit
              "--no-audio",                  # the phone's sound stays on the phone
              "--max-fps=30", "--video-bit-rate=4M",
              "--window-borderless", f"--window-title={WINDOW_TITLE}",

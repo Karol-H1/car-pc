@@ -278,8 +278,8 @@ FloatLayout:
                 size_hint_y: None
                 height: 50
             RailButton:
-                icon: "navigation"
-                caption: "DRIVE"
+                icon: "home"
+                caption: "HOME"
                 active: screens.current == "home"
                 on_release: app.switch_to("home")
             RailButton:
@@ -293,10 +293,10 @@ FloatLayout:
                 active: screens.current == "dashcam"
                 on_release: app.switch_to("dashcam")
             RailButton:
-                icon: "traffic"
-                caption: "TRAFFIC"
-                active: screens.current == "traffic"
-                on_release: app.switch_to("traffic")
+                icon: "map"
+                caption: "MAP"
+                active: screens.current == "map"
+                on_release: app.switch_to("map")
             Widget:
 
         BoxLayout:
@@ -337,6 +337,12 @@ FloatLayout:
                     size_hint_x: None
                     width: 12
                 IconLabel:
+                    icon: "phone_android"
+                    size_hint_x: None
+                    width: 28
+                    font_size: 20
+                    color: app.accent if app.mirror_state == "running" else DIM
+                IconLabel:
                     icon: "headphones"
                     size_hint_x: None
                     width: 28
@@ -363,8 +369,8 @@ FloatLayout:
                     name: "music"
                 DashcamScreen:
                     name: "dashcam"
-                TrafficScreen:
-                    name: "traffic"
+                MapScreen:
+                    name: "map"
 
     CallOverlay:
         shown: app.call_state != "none"
@@ -374,7 +380,9 @@ FloatLayout:
         id: splash
 
 
-# ================= Drive (home) =================
+# ================= Home =================
+# The map card shows Google Maps from the phone when it's connected (its window sits exactly over
+# map_card), and the offline map with its own turn card, arrival card and speed otherwise.
 
 <HomeScreen>:
     BoxLayout:
@@ -383,6 +391,7 @@ FloatLayout:
 
         # ----- Map with floating cards -----
         FloatLayout:
+            id: map_card
             size_hint_x: 1.4
             canvas.before:
                 Color:
@@ -396,11 +405,13 @@ FloatLayout:
             NavMap:
                 id: navmap
                 accent: app.accent
+                interactive: not app.google_on_home
                 pos_hint: {"x": 0, "y": 0}
                 on_destination: app.navigate_to(args[1], args[2])
 
             # Next turn
             FloatCard:
+                shown: not app.google_on_home
                 pos_hint: {"x": 0.03, "top": 0.97}
                 size_hint: 0.94, None
                 height: 76
@@ -432,7 +443,7 @@ FloatLayout:
 
             # Arrival time, trip left, and the button to end the route
             FloatCard:
-                shown: app.has_route
+                shown: app.has_route and not app.google_on_home
                 opacity: 0
                 pos_hint: {"x": 0.03, "y": 0.04}
                 size_hint: None, None
@@ -480,7 +491,7 @@ FloatLayout:
 
             # Speed
             FloatCard:
-                shown: app.speed_text != ""
+                shown: app.speed_text != "" and not app.google_on_home
                 opacity: 0
                 radius: 30
                 pos_hint: {"right": 0.97, "y": 0.04}
@@ -503,7 +514,7 @@ FloatLayout:
 
             # Back to following the car
             FloatCard:
-                shown: not navmap.following
+                shown: not navmap.following and not app.google_on_home
                 opacity: 0
                 radius: 24
                 pos_hint: {"right": 0.97, "y": 0.2 if app.speed_text else 0.04}
@@ -778,13 +789,11 @@ FloatLayout:
                 color: MUTED
 
 
-# ================= Live traffic (phone mirroring) =================
+# ================= Map: Google Maps, full size =================
 
 # While mirroring, the phone's Google Maps window covers mirror_area exactly; what's drawn here only
 # shows while it's starting, paused, or when there's no phone.
-<TrafficScreen>:
-    on_pre_leave: app.stop_mirror()
-    on_enter: app.check_phone()
+<MapScreen>:
     FloatLayout:
         Card:
             id: mirror_area
@@ -796,7 +805,7 @@ FloatLayout:
             padding: 30
             Widget:
             IconLabel:
-                icon: "cast" if app.mirror_state in ("ready", "running") else ("warning" if app.mirror_state == "error" else "traffic")
+                icon: "map" if app.mirror_state in ("ready", "running") else ("warning" if app.mirror_state == "error" else "phone_android")
                 font_size: 84
                 color: app.accent if app.mirror_state != "error" else theme.WARNING
                 size_hint_y: None
@@ -809,7 +818,7 @@ FloatLayout:
                         pos: self.center_x - 110, self.center_y - 110
                         size: 220, 220
             Label:
-                text: "Live traffic"
+                text: "Google Maps"
                 font_name: "Display"
                 bold: True
                 font_size: 28
@@ -828,7 +837,7 @@ FloatLayout:
                 size_hint_y: None
                 height: 56
                 HideBox:
-                    shown: app.mirror_state == "error"
+                    shown: app.mirror_state == "error" and root.manager is not None and root.manager.current == "map"
                     opacity: 0
                     size_hint: None, None
                     size: 150, 46
