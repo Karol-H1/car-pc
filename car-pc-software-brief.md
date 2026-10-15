@@ -11,7 +11,7 @@ The owner is new to Python UI work and wants explanations as we go, not just cod
 - Powered USB hub for GPS, capture card, dashcam
 - USB GPS dongle (~$20, u-blox if possible)
 - USB capture card for the rear camera. The existing camera uses a **3.5mm TRRS** connector carrying analog composite video, so the card needs a 3.5mm AV input or adapter cable. Low latency matters.
-- Front dashcam: USB webcam-style, mounted on the windshield (not on the enclosure)
+- Front dashcam: USB webcam-style, mounted on the windshield (not on the enclosure). *Have: UGREEN USB camera (MJPEG only, up to 1080p30).*
 - Mini-Box M2-ATX-style automotive DC-DC converter (wide input, 5V out, **delayed-off**), fed from constant 12V
 - PC817-based optocoupler module for ignition sensing (isolation from 12V)
 - Reverse-light signal: reuse the existing tap from the old head unit, still through isolation, into a GPIO
@@ -23,7 +23,7 @@ The owner is new to Python UI work and wants explanations as we go, not just cod
 3. **Phone calls**: Bluetooth hands-free; UI shows caller name (needs phone contact sharing/PBAP) or number, plus answer/hang up. *(Oct 2026: calling, contacts, recents and incoming-call detection already work through the phone's USB debugging link (phone.py); call audio still stays on the phone until Bluetooth hands-free + USB audio adapter/mic are set up.)*
 4. **Audio management**: pause (or duck) music when a call starts, resume when it ends.
 5. **Rear camera**: auto-switch to the camera feed when reverse is engaged (GPIO high), switch back when it drops.
-6. **Front dashcam**: loop recording with auto-overwrite, plus a manual dashcam view screen. Storage budget needs thought (roughly 3-6GB/hour at 1080p).
+6. **Front dashcam**: loop recording with auto-overwrite, plus a manual dashcam view screen. *(Built Oct 2026, dashcam.py: 720p15 MJPEG copied into 1-minute MKV files, ~6 GB/hour, 20 GB loop limit ≈ 3.5 h; Save clip keeps the last minute + next 30 s in ~/dashcam/saved.)*
 7. **Safe shutdown**: GPIO watches the ignition-sense line. When ignition goes off, run `shutdown -h now`. The converter's delay-off keeps power alive about 15-20 seconds so the OS halts cleanly.
 
 ## UI screens (ScreenManager)
@@ -48,6 +48,10 @@ Kivy UI, librespot (or similar), BlueZ + PipeWire for calls and audio, a small P
 6. Ignition-sense + shutdown script (bench PSU, not the car)
 7. Kiosk autostart on boot, then car install
 8. Burn-in test: weeks of daily use, confirm no storage corruption
+
+## Future hardware upgrades (optional)
+- **Dashcam camera with built-in H.264 encoding** (UVC webcam that outputs H.264, e.g. some ELP models): about 1.5-3 GB/hour instead of ~6 GB/hour from the current MJPEG camera, so 2-4x more recording in the same space, with no extra work for the Pi (the Pi 5 has no hardware video encoder, so compressing MJPEG itself would cost 1-2 CPU cores and heat).
+- **NVMe SSD on an M.2 HAT+** for dashcam storage if SD card wear or space becomes a problem.
 
 ## Safety notes
 Test all GPIO logic with simulated inputs on the bench before connecting to car wiring. Never feed 12V into a GPIO; always go through the optocoupler. Verify ignition-switched vs. constant wires with a multimeter and fuse every tap.

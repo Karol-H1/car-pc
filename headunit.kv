@@ -343,6 +343,13 @@ FloatLayout:
                     size_hint_x: None
                     width: 12
                 IconLabel:
+                    icon: "fiber_manual_record"
+                    size_hint_x: None
+                    width: 22 if app.dashcam_recording else 0
+                    font_size: 14
+                    color: DANGER
+                    opacity: 1 if app.dashcam_recording else 0
+                IconLabel:
                     icon: "phone_android"
                     size_hint_x: None
                     width: 28
@@ -713,13 +720,24 @@ FloatLayout:
 
 <DashcamScreen>:
     FloatLayout:
+        # Live view, letterboxed to the camera's 16:9 inside a rounded card
         Card:
+            id: view
             pos_hint: {"x": 2 / max(1, root.width), "y": 12 / max(1, root.height)}
             size_hint: None, None
             size: root.width - 14, root.height - 16
             radius: 22
             orientation: "vertical"
             padding: 30
+            canvas.after:
+                Color:
+                    rgba: (1, 1, 1, 1) if app.dashcam_texture and app.dashcam_recording else (0, 0, 0, 0)
+                RoundedRectangle:
+                    texture: app.dashcam_texture
+                    size: self.width, min(self.height, self.width * 9 / 16)
+                    pos: self.x, self.center_y - min(self.height, self.width * 9 / 16) / 2
+                    radius: [22]
+            # Shown while there's no camera
             Widget:
             IconLabel:
                 icon: "videocam"
@@ -727,6 +745,7 @@ FloatLayout:
                 color: DIM
                 size_hint_y: None
                 height: 100
+                opacity: 0 if app.dashcam_recording else 1
             Label:
                 text: "Dashcam not connected"
                 font_name: "Display"
@@ -735,39 +754,75 @@ FloatLayout:
                 size_hint_y: None
                 height: 40
                 color: TEXT
+                opacity: 0 if app.dashcam_recording else 1
             Label:
-                text: "Loop recording starts on its own once the USB camera is plugged in."
+                text: "Recording starts on its own when the USB camera is plugged in."
                 font_size: 15
                 color: MUTED
                 size_hint_y: None
                 height: 30
+                opacity: 0 if app.dashcam_recording else 1
             Widget:
-        # Recording status pill
+
+        # Recording badge
         BoxLayout:
             size_hint: None, None
-            size: 118, 34
-            pos_hint: {"x": 22 / max(1, root.width), "top": 1 - 18 / max(1, root.height)}
+            size: 132, 36
+            pos_hint: {"x": 22 / max(1, root.width), "top": 1 - 22 / max(1, root.height)}
             padding: 12, 0
             spacing: 6
             canvas.before:
                 Color:
-                    rgba: GLASS_STRONG
+                    rgba: 0, 0, 0, 0.6
                 RoundedRectangle:
                     pos: self.pos
                     size: self.size
-                    radius: [17]
+                    radius: [18]
             IconLabel:
+                id: rec_dot
                 icon: "fiber_manual_record"
                 font_size: 16
-                color: DIM
+                color: DANGER if app.dashcam_recording else DIM
+                opacity: 1 if (app.dashcam_blink or not app.dashcam_recording) else 0.2
                 size_hint_x: None
                 width: 18
             Label:
-                text: "OFFLINE"
+                text: ("REC  " + app.dashcam_elapsed) if app.dashcam_recording else "OFFLINE"
                 font_name: "Display"
                 bold: True
-                font_size: 15
-                color: MUTED
+                font_size: 16
+                color: TEXT if app.dashcam_recording else MUTED
+
+        # Storage and save
+        HideBox:
+            shown: app.dashcam_recording
+            opacity: 0
+            size_hint: None, None
+            size: root.width - 58, 52
+            pos_hint: {"x": 22 / max(1, root.width), "y": 26 / max(1, root.height)}
+            padding: 14, 6, 6, 6
+            spacing: 10
+            canvas.before:
+                Color:
+                    rgba: 0, 0, 0, 0.6
+                RoundedRectangle:
+                    pos: self.pos
+                    size: self.size
+                    radius: [26]
+            Label:
+                text: app.dashcam_note or app.dashcam_storage
+                font_name: "Display"
+                font_size: 16
+                color: GOOD if app.dashcam_note else TEXT
+                text_size: self.size
+                halign: "left"
+                valign: "middle"
+                shorten: True
+            PillButton:
+                text: "SAVE CLIP"
+                size_hint_x: None
+                width: 140
+                on_release: app.save_dashcam_clip()
 
 
 # ================= Map: Google Maps, full size =================

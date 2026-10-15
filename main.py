@@ -1,3 +1,4 @@
+import io
 import threading
 import time
 from datetime import datetime, timedelta
@@ -25,6 +26,7 @@ from kivy.properties import (BooleanProperty, ColorProperty, ListProperty,  # no
 from kivy.uix.screenmanager import Screen, SlideTransition  # noqa: E402
 
 import artwork  # noqa: E402
+import dashcam  # noqa: E402
 import geo  # noqa: E402
 import mirror  # noqa: E402
 import navmap  # noqa: E402,F401  (registers NavMap so headunit.kv can use it)
@@ -124,6 +126,14 @@ class HeadUnitApp(App):
     dial_number = StringProperty("")
     reversing = BooleanProperty(False)
 
+    # Dashcam
+    dashcam_recording = BooleanProperty(False)
+    dashcam_blink = BooleanProperty(True)  # the REC dot flashes once a second
+    dashcam_elapsed = StringProperty("")
+    dashcam_storage = StringProperty("")
+    dashcam_texture = ObjectProperty(None, allownone=True)  # live view
+    dashcam_note = StringProperty("")  # brief confirmation after saving a clip
+
     # Google Maps from the phone (mirroring)
     mirror_state = StringProperty("checking")
     google_on_home = BooleanProperty(False)  # Google Maps is covering the Home page's map card
@@ -161,6 +171,11 @@ class HeadUnitApp(App):
         self.mirror_screen = None       # the page the mirror is showing on
         self.mirror_retry_after = 0.0   # time.monotonic() before which not to retry after a failure
         Clock.schedule_interval(self.check_phone, 2)
+
+        self.dashcam = dashcam.Dashcam()
+        self.preview_mtime = 0.0
+        Clock.schedule_interval(self.tick_dashcam, 1)
+        Clock.schedule_interval(self.refresh_preview, 1 / 10)
 
         self.tick_clock()
         Clock.schedule_interval(self.tick_clock, 1)
@@ -443,6 +458,41 @@ class HeadUnitApp(App):
 
     def on_stop(self):
         self.mirror.stop()  # don't leave the mirror window behind when the app quits
+        self.dashcam.stop()
+
+    # ---- Dashcam ----
+
+    def tick_dashcam(self, *args):
+        cam = self.dashcam
+        self.dashcam_recording = cam.recording
+        self.dashcam_blink = not self.dashcam_blink
+        if cam.recording and cam.recording_since:
+            seconds = int(time.time() - cam.recording_since)
+            hours, rest = divmod(seconds, 3600)
+            self.dashcam_elapsed = (f"{hours}:{rest // 60:02d}:{rest % 60:02d}" if hours
+                                    else f"{rest // 60}:{rest % 60:02d}")
+        saved = f"{cam.saved_clips} saved minute{'s' if cam.saved_clips != 1 else ''}"
+        self.dashcam_storage = (f"Loop {cam.loop_bytes / 1e9:.1f} of {config.DASHCAM_MAX_GB} GB"
+                                f"  ·  {saved}")
+
+    def refresh_preview(self, *args):
+        """Live view: load the newest camera frame while the Dashcam page is showing."""
+        if self.screens.current != "dashcam" or not self.dashcam_recording:
+            return
+        try:
+            mtime = dashcam.PREVIEW.stat().st_mtime
+            if mtime == self.preview_mtime:
+                return
+            data = dashcam.PREVIEW.read_bytes()
+            self.dashcam_texture = CoreImage(io.BytesIO(data), ext="jpg").texture
+            self.preview_mtime = mtime
+        except Exception:  # noqa: BLE001 - a frame mid-swap or a bad JPEG: just wait for the next
+            pass
+
+    def save_dashcam_clip(self):
+        self.dashcam.save_clip()
+        self.dashcam_note = "Saved: the last minute and the next 30 seconds"
+        Clock.schedule_once(lambda dt: setattr(self, "dashcam_note", ""), 4)
 
     # ---- Phone (through the phone's USB debugging link for now) ----
 

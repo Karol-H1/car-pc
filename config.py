@@ -21,3 +21,12 @@ DEMO_SPEED = 40
 # CARPC_NO_SPLASH=1 skips the startup animation (handy for tests).
 AMBIENT_FPS = 20
 SHOW_SPLASH = not os.environ.get("CARPC_NO_SPLASH")
+
+# Dashcam. The camera is found by (part of) its name; recordings are 1-minute MKV files. The oldest
+# loop minutes are deleted to stay under DASHCAM_MAX_GB and keep DASHCAM_MIN_FREE_GB free on the disk.
+DASHCAM_DIR = Path(os.environ.get("CARPC_DASHCAM", Path.home() / "dashcam"))
+DASHCAM_CAMERA = "UGREEN Camera"
+DASHCAM_SIZE = "1280x720"
+DASHCAM_FPS = 15
+DASHCAM_MAX_GB = 20
+DASHCAM_MIN_FREE_GB = 3
