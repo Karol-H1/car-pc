@@ -57,6 +57,8 @@ class Dashcam:
         self.saved_dir.mkdir(parents=True, exist_ok=True)
         self.process = None
         self.recording_since = None
+        self.enabled = True          # recording is on at every start; the Dashcam page can pause it
+        self.camera_present = False
         self.save_windows = []   # (from, until) times whose minutes should be kept
         self.loop_bytes = 0
         self.saved_clips = 0
@@ -69,10 +71,11 @@ class Dashcam:
 
     def supervise(self):
         while True:
+            device = find_camera(config.DASHCAM_CAMERA)
+            self.camera_present = device is not None
             if not self.recording:
                 self.recording_since = None
-                device = find_camera(config.DASHCAM_CAMERA)
-                if device:
+                if device and self.enabled:
                     self.start(device)
             self.tidy()
             time.sleep(3)
@@ -96,7 +99,14 @@ class Dashcam:
     def stop(self):
         process, self.process = self.process, None
         if process is not None:
-            process.terminate()
+            process.terminate()  # ffmpeg finishes the current file cleanly
+        self.recording_since = None
+
+    def set_enabled(self, enabled):
+        """Pause or resume recording (it resumes within a few seconds)."""
+        self.enabled = enabled
+        if not enabled:
+            self.stop()
 
     def save_clip(self):
         now = time.time()

@@ -26,6 +26,7 @@ from kivy.properties import (BooleanProperty, ColorProperty, ListProperty,  # no
 from kivy.uix.screenmanager import Screen, SlideTransition  # noqa: E402
 
 import artwork  # noqa: E402
+import audio  # noqa: E402
 import dashcam  # noqa: E402
 import geo  # noqa: E402
 import mirror  # noqa: E402
@@ -95,6 +96,8 @@ class HeadUnitApp(App):
     cover_texture = ObjectProperty(None, allownone=True)
     backdrop_texture = ObjectProperty(None, allownone=True)
     accent = ColorProperty(theme.ACCENT)  # follows the album cover's color
+    volume = NumericProperty(0.5)          # the Pi's output volume, 0 to 1
+    volume_available = BooleanProperty(False)
 
     # Navigation
     has_route = BooleanProperty(False)
@@ -128,6 +131,8 @@ class HeadUnitApp(App):
 
     # Dashcam
     dashcam_recording = BooleanProperty(False)
+    dashcam_enabled = BooleanProperty(True)   # the record/stop button; on at every start
+    dashcam_camera = BooleanProperty(False)   # the camera is plugged in
     dashcam_blink = BooleanProperty(True)  # the REC dot flashes once a second
     dashcam_elapsed = StringProperty("")
     dashcam_storage = StringProperty("")
@@ -171,6 +176,10 @@ class HeadUnitApp(App):
         self.mirror_screen = None       # the page the mirror is showing on
         self.mirror_retry_after = 0.0   # time.monotonic() before which not to retry after a failure
         Clock.schedule_interval(self.check_phone, 2)
+
+        self.volume_loaded = False
+        self.apply_volume_soon = Clock.create_trigger(self.apply_volume, 0.08)
+        self.run_in_background(self.load_volume)
 
         self.dashcam = dashcam.Dashcam()
         self.preview_mtime = 0.0
@@ -368,6 +377,32 @@ class HeadUnitApp(App):
         seconds = int(ms // 1000)
         return f"{seconds // 60}:{seconds % 60:02d}"
 
+    # ---- Volume (the Pi's output; the car stereo's knob is the main control) ----
+
+    @staticmethod
+    def run_in_background(function, *args):
+        threading.Thread(target=function, args=args, daemon=True).start()
+
+    def load_volume(self):
+        level = audio.get_volume() if audio.available() else None
+
+        def show(dt):
+            self.volume_available = level is not None
+            if level is not None:
+                self.volume = level
+            self.volume_loaded = True
+        Clock.schedule_once(show)
+
+    def on_volume(self, _, volume):
+        if self.volume_loaded:
+            self.apply_volume_soon()  # while dragging, send at most ~12 changes a second
+
+    def apply_volume(self, *args):
+        self.run_in_background(audio.set_volume, self.volume)
+
+    def change_volume(self, step):
+        self.volume = max(0.0, min(1.0, round(self.volume + step, 2)))
+
     def seek_to(self, position_ms):
         self.track_position = position_ms
         self.spotify.seek(position_ms)
@@ -465,6 +500,7 @@ class HeadUnitApp(App):
     def tick_dashcam(self, *args):
         cam = self.dashcam
         self.dashcam_recording = cam.recording
+        self.dashcam_camera = cam.camera_present
         self.dashcam_blink = not self.dashcam_blink
         if cam.recording and cam.recording_since:
             seconds = int(time.time() - cam.recording_since)
@@ -488,6 +524,11 @@ class HeadUnitApp(App):
             self.preview_mtime = mtime
         except Exception:  # noqa: BLE001 - a frame mid-swap or a bad JPEG: just wait for the next
             pass
+
+    def toggle_dashcam(self):
+        self.dashcam_enabled = not self.dashcam_enabled
+        self.dashcam.set_enabled(self.dashcam_enabled)
+        self.tick_dashcam()
 
     def save_dashcam_clip(self):
         self.dashcam.save_clip()

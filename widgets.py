@@ -123,6 +123,10 @@ class SeekBar(Slider):
         pass
 
 
+class VolumeSlider(Slider):
+    """A Slider with the same look as the song progress bar (style in headunit.kv)."""
+
+
 class AmbientBackground(Widget):
     """Big soft glows drifting slowly behind everything, colored from the current album cover."""
     accent = ColorProperty(theme.ACCENT)

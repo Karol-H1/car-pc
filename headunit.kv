@@ -176,6 +176,31 @@
             pos: self.value_pos[0] - 6, self.center_y - 6
             size: 12, 12
 
+<-VolumeSlider>:
+    canvas:
+        Color:
+            rgba: 1, 1, 1, 0.16
+        RoundedRectangle:
+            pos: self.x + self.padding, self.center_y - 2
+            size: self.width - 2 * self.padding, 4
+            radius: [2]
+        Color:
+            rgba: app.accent
+        RoundedRectangle:
+            pos: self.x + self.padding, self.center_y - 2
+            size: max(0, self.value_pos[0] - self.x - self.padding), 4
+            radius: [2]
+        Color:
+            rgba: with_alpha(app.accent, 0.22)
+        Ellipse:
+            pos: self.value_pos[0] - 10, self.center_y - 10
+            size: 20, 20
+        Color:
+            rgba: 1, 1, 1, (1 if not self.disabled else 0)
+        Ellipse:
+            pos: self.value_pos[0] - 6, self.center_y - 6
+            size: 12, 12
+
 <EqualizerBars>:
     canvas:
         Color:
@@ -661,7 +686,7 @@ FloatLayout:
                 orientation: "vertical"
                 spacing: 4
                 Widget:
-                    size_hint_y: 0.3
+                    size_hint_y: 0.15
                 BoxLayout:
                     size_hint_y: None
                     height: 20
@@ -712,8 +737,41 @@ FloatLayout:
                         icon: "skip_next"
                         font_size: 40
                         on_release: app.next_track()
+                # Volume of the Pi's output (in the car, the stereo's knob does the rest)
+                BoxLayout:
+                    size_hint_y: None
+                    height: 40
+                    spacing: 6
+                    opacity: 1 if app.volume_available else 0.35
+                    IconButton:
+                        icon: "volume_mute" if app.volume < 0.01 else "volume_down"
+                        font_size: 24
+                        color: MUTED
+                        size_hint_x: None
+                        width: 40
+                        on_release: app.change_volume(-0.05)
+                    VolumeSlider:
+                        min: 0
+                        max: 1
+                        value: app.volume
+                        disabled: not app.volume_available
+                        on_value: app.volume = args[1]
+                    IconButton:
+                        icon: "volume_up"
+                        font_size: 24
+                        color: MUTED
+                        size_hint_x: None
+                        width: 40
+                        on_release: app.change_volume(0.05)
+                    Fit:
+                        text: f"{round(app.volume * 100)}%"
+                        font_name: "Display"
+                        font_size: 15
+                        color: MUTED
+                        size_hint_x: None
+                        width: 44
                 Widget:
-                    size_hint_y: 0.2
+                    size_hint_y: 0.1
 
 
 # ================= Dashcam =================
@@ -740,14 +798,14 @@ FloatLayout:
             # Shown while there's no camera
             Widget:
             IconLabel:
-                icon: "videocam"
+                icon: "pause_circle" if app.dashcam_camera else "videocam"
                 font_size: 84
                 color: DIM
                 size_hint_y: None
                 height: 100
                 opacity: 0 if app.dashcam_recording else 1
             Label:
-                text: "Dashcam not connected"
+                text: ("Recording paused" if not app.dashcam_enabled else "Starting camera...") if app.dashcam_camera else "Dashcam not connected"
                 font_name: "Display"
                 bold: True
                 font_size: 26
@@ -756,7 +814,7 @@ FloatLayout:
                 color: TEXT
                 opacity: 0 if app.dashcam_recording else 1
             Label:
-                text: "Recording starts on its own when the USB camera is plugged in."
+                text: "Tap RECORD to start again. It also starts on its own at every startup." if app.dashcam_camera and not app.dashcam_enabled else "Recording starts on its own when the USB camera is plugged in."
                 font_size: 15
                 color: MUTED
                 size_hint_y: None
@@ -787,7 +845,7 @@ FloatLayout:
                 size_hint_x: None
                 width: 18
             Label:
-                text: ("REC  " + app.dashcam_elapsed) if app.dashcam_recording else "OFFLINE"
+                text: ("REC  " + app.dashcam_elapsed) if app.dashcam_recording else ("PAUSED" if app.dashcam_camera else "OFFLINE")
                 font_name: "Display"
                 bold: True
                 font_size: 16
@@ -795,7 +853,7 @@ FloatLayout:
 
         # Storage and save
         HideBox:
-            shown: app.dashcam_recording
+            shown: app.dashcam_camera
             opacity: 0
             size_hint: None, None
             size: root.width - 58, 52
@@ -819,10 +877,18 @@ FloatLayout:
                 valign: "middle"
                 shorten: True
             PillButton:
-                text: "SAVE CLIP"
+                text: "STOP" if app.dashcam_enabled else "RECORD"
                 size_hint_x: None
-                width: 140
-                on_release: app.save_dashcam_clip()
+                width: 110
+                on_release: app.toggle_dashcam()
+            HideBox:
+                shown: app.dashcam_recording
+                opacity: 0
+                size_hint_x: None
+                width: 140 if app.dashcam_recording else 0
+                PillButton:
+                    text: "SAVE CLIP"
+                    on_release: app.save_dashcam_clip()
 
 
 # ================= Map: Google Maps, full size =================
