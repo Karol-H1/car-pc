@@ -9,7 +9,7 @@ The owner is new to Python UI work and wants explanations as we go, not just cod
 - Raspberry Pi 5, **4GB** (iRasptek starter kit: case, active cooler, 27W supply, 64GB SD with Pi OS). Plan to swap to an endurance-rated microSD before daily car use.
 - 7" 800x480 touchscreen, connected by **DSI ribbon cable** (shows up as DSI-1; touch also goes over DSI, no USB)
 - Powered USB hub for GPS, capture card, dashcam
-- USB GPS dongle (~$20, u-blox if possible)
+- USB GPS dongle (~$20, u-blox if possible). *Have: u-blox 7; read directly by gps.py (NMEA over USB serial, no gpsd), set to automotive mode.*
 - USB capture card for the rear camera. The existing camera uses a **3.5mm TRRS** connector carrying analog composite video, so the card needs a 3.5mm AV input or adapter cable. Low latency matters.
 - Front dashcam: USB webcam-style, mounted on the windshield (not on the enclosure). *Have: UGREEN USB camera (MJPEG only, up to 1080p30).*
 - Mini-Box M2-ATX-style automotive DC-DC converter (wide input, 5V out, **delayed-off**), fed from constant 12V

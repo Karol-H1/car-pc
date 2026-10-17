@@ -108,7 +108,7 @@ With the engine running, expect about 13.5-14.5V instead of 12V. That's normal.
 - **Backup camera:** the camera's 3.5mm TRRS plug → 4-pole female-to-female coupler → Riksoin 3.5mm
   to 3 RCA cable → USB composite capture dongle (Linux/UVC compatible). The video may come out of the
   red or white RCA plug instead of yellow, so try each.
-- **USB devices:** USB GPS (VK-162), capture dongle, dashcam (UGREEN camera, have), audio adapter and
+- **USB devices:** USB GPS (u-blox 7, have; place it where it can see the sky, e.g. top of the dash), capture dongle, dashcam (UGREEN camera, have), audio adapter and
   the phone go into a **powered USB hub** fed from the same 5V converter.
 
 ## 6. Order of work
@@ -176,3 +176,4 @@ unhelpful; the topics are what matter.
 
 - **Oct 2026:** First version. The audio adapter, aux cable and dashcam camera are in hand, and the TRS
   PC mic is ordered (the mono car mic didn't work with the adapter).
+- **Oct 16, 2026:** The USB GPS (u-blox 7) arrived and works with the app (gps.py).
