@@ -34,7 +34,7 @@ _CODES = {
     "add": "e145", "bluetooth": "e1a7", "call": "e0b0", "call_end": "e0b1", "camera_rear": "e3b2",
     "cast": "e307", "close": "e5cd", "directions_boat": "e532", "directions_car": "e531",
     "equalizer": "e01d", "explore": "e87a", "fiber_manual_record": "e061", "flag": "e153",
-    "fork_left": "eba0", "fork_right": "ebac", "gps_fixed": "e1b3", "gps_not_fixed": "e1b4",
+    "fork_left": "eba0", "fork_right": "ebac", "gps_fixed": "e1b3", "gps_not_fixed": "e1b4", "gps_off": "e1b5",
     "graphic_eq": "e1b8", "headphones": "f01f", "home": "e88a", "library_music": "e030",
     "location_on": "e0c8", "map": "e55b", "merge": "eb98", "mic": "e029", "music_note": "e405",
     "my_location": "e55c", "navigation": "e55d", "near_me": "e569", "pause": "e034", "person": "e7fd", "phone_android": "e324", "backspace": "e14a", "call_made": "e0b2",

@@ -29,6 +29,7 @@ import artwork  # noqa: E402
 import audio  # noqa: E402
 import dashcam  # noqa: E402
 import geo  # noqa: E402
+import gps  # noqa: E402
 import mirror  # noqa: E402
 import navmap  # noqa: E402,F401  (registers NavMap so headunit.kv can use it)
 import phone  # noqa: E402
@@ -110,6 +111,7 @@ class HeadUnitApp(App):
     trip_text = StringProperty("")
     speed_text = StringProperty("")
     gps_fix = BooleanProperty(False)
+    gps_present = BooleanProperty(False)  # the USB GPS is plugged in
 
     # Status bar
     clock_time = StringProperty("")
@@ -155,6 +157,9 @@ class HeadUnitApp(App):
         self.demo = None
         self.car_position = config.DEFAULT_POSITION
         self.map.set_car(*self.car_position, 0)
+        self.gps_has_fix = False
+        self.gps = gps.Gps(lambda present, fix: Clock.schedule_once(
+            lambda dt: self.gps_changed(present, fix)))
 
         self.spotify = Spotify(lambda state: Clock.schedule_once(lambda dt: self.show_spotify(state)))
         self.spotify_state = None
@@ -288,7 +293,7 @@ class HeadUnitApp(App):
             self.demo.stop()
             self.demo = None
             self.speed_text = ""
-            self.gps_fix = False
+            self.gps_fix = self.gps_has_fix
         self.map.set_route([])
         self.set_banner(*WHERE_TO)
 
@@ -301,8 +306,19 @@ class HeadUnitApp(App):
         self.demo = DemoDrive(self.route, self.on_position, config.DEMO_SPEED)
         self.map.recenter()
 
+    def gps_changed(self, present, fix):
+        self.gps_present = present
+        self.gps_has_fix = fix is not None
+        if self.demo and self.demo.event.is_triggered:
+            return  # the demo drive is in charge of the car's position
+        if fix is None:
+            self.gps_fix = False
+            self.speed_text = ""
+        else:
+            self.on_position(fix.lat, fix.lon, fix.heading, fix.speed)
+
     def on_position(self, lat, lon, heading, speed=None):
-        """Called with every new position: from the demo drive now, from the GPS later.
+        """Called with every new position: from the USB GPS, or from the demo drive.
         speed is in meters per second, or None if unknown."""
         self.car_position = (lat, lon)
         self.gps_fix = True

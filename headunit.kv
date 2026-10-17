@@ -387,7 +387,7 @@ FloatLayout:
                     font_size: 20
                     color: GOOD if app.spotify_connected else DIM
                 IconLabel:
-                    icon: "gps_fixed" if app.gps_fix else "gps_not_fixed"
+                    icon: "gps_fixed" if app.gps_fix else ("gps_not_fixed" if app.gps_present else "gps_off")
                     size_hint_x: None
                     width: 28
                     font_size: 20
