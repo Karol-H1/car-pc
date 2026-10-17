@@ -121,11 +121,10 @@ With the engine running, expect about 13.5-14.5V instead of 12V. That's normal.
 
 - **Sound:** USB audio adapter (ENVEL, have) headphone jack → 3.5mm aux cable (have) → the stereo's
   aux input. Set the Pi's volume to about 80-90% once (Music page), then use the stereo's knob.
-- **Microphone:** not settled yet. Plan: a **USB mic** into the powered hub (verify the model first).
-  A USB mic sends sound digitally, so car electrical noise (alternator whine) can't get into it. The
-  webcam's built-in mic works as a fallback. Two analog mics in the adapter's mic jack failed: the
-  FingerLakes car mic (mono TS plug) got no power, and the clip-on PC mic (TRS) picked up loud 60 Hz
-  hum with very little voice.
+- **Microphone:** the **dashcam webcam's built-in mic** (decided Oct 2026). It's the default mic
+  whenever the webcam is plugged in (`system/install_mic.sh`). Mount the webcam where it has a clear
+  path to the driver. Two analog mics in the adapter's mic jack failed (no power, then loud hum), so
+  that jack is only a last-resort backup.
 - **Backup camera:** the camera's 3.5mm TRRS plug → 4-pole female-to-female coupler → Riksoin 3.5mm
   to 3 RCA cable → USB composite capture dongle (Linux/UVC compatible). The video may come out of the
   red or white RCA plug instead of yellow, so try each.
@@ -199,4 +198,4 @@ unhelpful; the topics are what matter.
   PC mic is ordered (the mono car mic didn't work with the adapter).
 - **Oct 16, 2026:** The USB GPS (u-blox 7) arrived and works with the app (gps.py).
 - **Oct 17, 2026:** Ignition and reverse software built (carsignals.py): 10 s key-off countdown, test mode until installed, jumper-wire desk test.
-- **Oct 17, 2026:** The clip-on PC mic failed the test (hum, very weak voice). Plan changed to a USB mic.
+- **Oct 17, 2026:** The clip-on PC mic failed the test (hum, very weak voice). Decided to use the webcam's built-in mic for calls.
