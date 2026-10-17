@@ -301,7 +301,7 @@ class HeadUnitApp(App):
 
     def power_off(self):
         if not config.IGNITION_SHUTDOWN:
-            self.shutdown_note = "Test mode: the Pi would turn off now. Turn the key on (I) to go back."
+            self.shutdown_note = "The Pi would turn off now"
             return
         self.shutdown_note = "Turning off..."
         if self.spotify_state is not None and self.is_playing:

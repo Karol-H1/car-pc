@@ -24,7 +24,7 @@ The owner is new to Python UI work and wants explanations as we go, not just cod
 4. **Audio management**: pause (or duck) music when a call starts, resume when it ends.
 5. **Rear camera**: auto-switch to the camera feed when reverse is engaged (GPIO high), switch back when it drops.
 6. **Front dashcam**: loop recording with auto-overwrite, plus a manual dashcam view screen. *(Built Oct 2026, dashcam.py: 720p15 MJPEG copied into 1-minute MKV files, ~6 GB/hour, 20 GB loop limit ≈ 3.5 h; Save clip keeps the last minute + next 30 s in ~/dashcam/saved.)*
-7. **Safe shutdown**: GPIO watches the ignition-sense line. When ignition goes off, run `shutdown -h now`. The converter's delay-off keeps power alive about 15-20 seconds so the OS halts cleanly.
+7. **Safe shutdown**: GPIO watches the ignition-sense line. When ignition goes off, run `shutdown -h now`. The converter's delay-off keeps power alive about 15-20 seconds so the OS halts cleanly. *(Built Oct 2026, carsignals.py: GPIO17 ignition / GPIO27 reverse via gpiod, 10 s countdown screen then `systemctl poweroff`; test mode until `IGNITION_SHUTDOWN = True`. The delay relay now planned keeps power ~45 s.)*
 
 ## UI screens (ScreenManager)
 Normal driving (nav + now-playing + phone tiles) → Reverse camera (automatic) → Dashcam view (manual) → Incoming/active call. The original sketch's overlay shows a turn banner, ETA, music card and phone card on the home screen.

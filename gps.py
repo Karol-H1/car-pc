@@ -6,10 +6,14 @@ runs on a background thread, so callers hand results to the main thread themselv
 """
 import glob
 import os
-import termios
 import threading
 import time
-import tty
+
+try:
+    import termios
+    import tty
+except ImportError:  # Windows: there's no GPS serial port to read anyway
+    termios = tty = None
 from dataclasses import dataclass
 
 METERS_PER_SECOND_PER_KNOT = 0.514444
@@ -75,14 +79,14 @@ class Gps:
 
     def run(self):
         while True:
-            device = find_device()
+            device = find_device() if termios else None
             if device is None:
                 self.on_update(False, None)
                 time.sleep(3)
                 continue
             try:
                 self.read(device)
-            except (OSError, termios.error, ValueError):
+            except (OSError, ValueError, *([termios.error] if termios else [])):
                 pass  # unplugged; look for it again
             self.on_update(False, None)
             time.sleep(2)

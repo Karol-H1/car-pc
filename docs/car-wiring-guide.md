@@ -86,6 +86,24 @@ Optocoupler boards label their terminals differently. When the board arrives, ph
 the terminals can be matched to this table, and note the board's input voltage rating (it must say 12V,
 or 12-24V).
 
+### What the software does with them (already built)
+
+- **Key off:** a "Car turned off" screen counts down 10 seconds, then the Pi shuts down cleanly
+  (the dashcam closes its file first). Turning the key back on during the countdown cancels it, which
+  also covers the moment the accessory power drops while the engine cranks.
+- **Reverse:** the reverse screen appears within a fifth of a second and goes away when you shift out.
+- **Test mode:** until the car wiring is done, `IGNITION_SHUTDOWN = False` in `config.py` keeps the
+  Pi on: the countdown still shows, but nothing turns off. Set it to `True` after the bench test passes.
+  The Pi also never shuts down unless it has seen the key on first, so it's safe with nothing wired.
+- **Desk test without the board:** with the Pi on, touch a female-to-female jumper wire between
+  **pin 11 and pin 9 (GND)**: that's "key on". Pull it off: "key off", and the countdown starts.
+  Pin 13 to pin 9 is "in reverse". (Only ever connect these pins to **ground**, never to 3.3V, 5V or
+  anything from the car.) The keyboard's **I** and **R** keys do the same.
+- **One-time setup on the Pi:** `bash system/install_car_signals.sh` (asks for your password) lets the
+  app power off the Pi by itself.
+- **If the signals come out backwards** with the real board (the screen says "car turned off" while
+  the key is on), set `SIGNALS_ACTIVE_LOW = False` in `config.py`.
+
 ## 4. Identifying wires with a multimeter
 
 Set the multimeter to **DC volts (20V range)**. Put the black probe on bare metal and the red probe on
@@ -177,3 +195,4 @@ unhelpful; the topics are what matter.
 - **Oct 2026:** First version. The audio adapter, aux cable and dashcam camera are in hand, and the TRS
   PC mic is ordered (the mono car mic didn't work with the adapter).
 - **Oct 16, 2026:** The USB GPS (u-blox 7) arrived and works with the app (gps.py).
+- **Oct 17, 2026:** Ignition and reverse software built (carsignals.py): 10 s key-off countdown, test mode until installed, jumper-wire desk test.
