@@ -12,6 +12,7 @@
 #:set DIM theme.DIM
 #:set GOOD theme.GOOD
 #:set DANGER theme.DANGER
+#:set WARNING theme.WARNING
 
 
 # ================= Building blocks =================
@@ -422,6 +423,8 @@ FloatLayout:
         pos: Window.width - 12 - self.width, 12
     ReverseOverlay:
         shown: app.reversing
+    ShutdownOverlay:
+        shown: app.shutdown_seconds > 0 or app.shutdown_note != ""
     Splash:
         id: splash
 
@@ -1276,6 +1279,54 @@ FloatLayout:
             bold: True
             font_size: 20
             color: TEXT
+
+
+# ================= Key off: shutting down =================
+
+<ShutdownOverlay@Overlay>:
+    fade: 0.3
+    canvas.before:
+        Color:
+            rgba: 0.02, 0.03, 0.05, 0.96
+        Rectangle:
+            pos: self.pos
+            size: self.size
+    BoxLayout:
+        orientation: "vertical"
+        size_hint: None, None
+        size: 520, 250
+        pos_hint: {"center_x": 0.5, "center_y": 0.52}
+        spacing: 8
+        IconLabel:
+            icon: "power_settings_new"
+            font_size: 72
+            color: app.accent
+            size_hint_y: None
+            height: 84
+        Label:
+            text: "Car turned off"
+            font_name: "Display"
+            bold: True
+            font_size: 34
+            color: TEXT
+            size_hint_y: None
+            height: 44
+        Label:
+            text: app.shutdown_note or f"Shutting down in {int(app.shutdown_seconds)} s"
+            font_name: "Display"
+            font_size: 22
+            color: MUTED
+            text_size: self.width, None
+            halign: "center"
+            size_hint_y: None
+            height: 60
+        Label:
+            text: ("TEST MODE  |  " if app.shutdown_test else "") + "Turn the key back on to cancel"
+            font_name: "Display"
+            font_size: 15
+            color: WARNING if app.shutdown_test else DIM
+            size_hint_y: None
+            height: 24
 
 
 # ================= Startup =================

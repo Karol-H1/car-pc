@@ -30,3 +30,17 @@ DASHCAM_SIZE = "1280x720"
 DASHCAM_FPS = 15
 DASHCAM_MAX_GB = 20
 DASHCAM_MIN_FREE_GB = 3
+
+# Car signals, through the optocoupler board (docs/car-wiring-guide.md). Pins are GPIO (BCM) numbers:
+# GPIO17 is header pin 11, GPIO27 is header pin 13. Most PC817 boards pull their output to ground
+# when 12V arrives ("active low"); flip SIGNALS_ACTIVE_LOW if the board turns out to do the opposite.
+IGNITION_PIN = 17
+REVERSE_PIN = 27
+SIGNALS_ACTIVE_LOW = True
+# After the key turns off, wait this long before shutting down. Turning the key back on cancels it,
+# and it also rides out the moment the accessory power drops while the engine cranks.
+IGNITION_OFF_SECONDS = 10
+# Really power the Pi off when the key turns off. Keep this False until the car wiring is in: until
+# then the shutdown screen runs as a test, and the Pi stays on. (It also only reacts after the key
+# has been seen on, so a Pi with nothing wired to its pins never shuts itself down.)
+IGNITION_SHUTDOWN = False

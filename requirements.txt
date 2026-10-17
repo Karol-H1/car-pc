@@ -4,3 +4,4 @@ numpy               # fast map drawing
 websocket-client    # Spotify events from go-librespot
 pillow              # album cover colors and blur
 osmium==4.3.1       # only used by tools/build_map_data.py
+gpiod; sys_platform == "linux"   # ignition and reverse signals (GPIO)

@@ -1,4 +1,5 @@
 import io
+import subprocess
 import threading
 import time
 from datetime import datetime, timedelta
@@ -27,6 +28,7 @@ from kivy.uix.screenmanager import Screen, SlideTransition  # noqa: E402
 
 import artwork  # noqa: E402
 import audio  # noqa: E402
+import carsignals  # noqa: E402
 import dashcam  # noqa: E402
 import geo  # noqa: E402
 import gps  # noqa: E402
@@ -130,6 +132,10 @@ class HeadUnitApp(App):
     phone_list_message = StringProperty("Loading...")
     dial_number = StringProperty("")
     reversing = BooleanProperty(False)
+    ignition_on = BooleanProperty(True)
+    shutdown_seconds = NumericProperty(0)  # counting down after the key turns off (0 = not)
+    shutdown_test = BooleanProperty(not config.IGNITION_SHUTDOWN)
+    shutdown_note = StringProperty("")
 
     # Dashcam
     dashcam_recording = BooleanProperty(False)
@@ -185,6 +191,11 @@ class HeadUnitApp(App):
         self.volume_loaded = False
         self.apply_volume_soon = Clock.create_trigger(self.apply_volume, 0.08)
         self.run_in_background(self.load_volume)
+
+        self.ignition_seen = False   # only shut down after the key has been seen on
+        self.shutdown_event = None
+        self.car_signals = carsignals.CarSignals(lambda name, active: Clock.schedule_once(
+            lambda dt: self.car_signal_changed(name, active)))
 
         self.dashcam = dashcam.Dashcam()
         self.preview_mtime = 0.0
@@ -252,6 +263,53 @@ class HeadUnitApp(App):
             self.start_demo_drive()
         elif codepoint == "c":
             self.start_fake_call()
+        elif codepoint == "i":
+            self.car_signal_changed("ignition", not self.ignition_on)
+
+    # ---- Ignition and reverse (GPIO, or the I and R keys) ----
+
+    def car_signal_changed(self, name, active):
+        if name == "reverse":
+            self.reversing = active
+            return
+        self.ignition_on = active
+        if active:
+            self.ignition_seen = True
+            self.cancel_shutdown()
+        elif self.ignition_seen and self.shutdown_event is None:
+            self.shutdown_note = ""
+            self.shutdown_seconds = config.IGNITION_OFF_SECONDS
+            self.stop_mirror(paused=True)  # its window would sit on top of the countdown
+            self.shutdown_event = Clock.schedule_interval(self.tick_shutdown, 1)
+
+    def tick_shutdown(self, dt):
+        self.shutdown_seconds -= 1
+        if self.shutdown_seconds > 0:
+            return
+        self.shutdown_event.cancel()
+        self.shutdown_event = None
+        self.power_off()
+
+    def cancel_shutdown(self):
+        if self.shutdown_event is not None:
+            self.shutdown_event.cancel()
+            self.shutdown_event = None
+        if self.shutdown_seconds or self.shutdown_note:
+            self.shutdown_seconds = 0
+            self.shutdown_note = ""
+            Clock.schedule_once(self.check_phone, 0.5)
+
+    def power_off(self):
+        if not config.IGNITION_SHUTDOWN:
+            self.shutdown_note = "Test mode: the Pi would turn off now. Turn the key on (I) to go back."
+            return
+        self.shutdown_note = "Turning off..."
+        if self.spotify_state is not None and self.is_playing:
+            self.spotify.pause()
+        self.dashcam.set_enabled(False)  # ffmpeg closes the current file properly
+        self.mirror.stop()
+        Clock.schedule_once(lambda dt: self.run_in_background(
+            subprocess.run, ["systemctl", "poweroff"]), 2)
 
     # ---- Navigation ----
 
